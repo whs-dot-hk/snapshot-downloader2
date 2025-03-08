@@ -5,7 +5,7 @@ use reqwest::header::{CONTENT_LENGTH, RANGE};
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> Result<PathBuf> {
     let client = reqwest::Client::new();
@@ -32,6 +32,13 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     // Get total file size by requesting just the first byte
     trace!("Requesting file metadata from server");
     let resp = client.get(url).header(RANGE, "bytes=0-0").send().await?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        error!("File not found at URL: {}", url);
+        return Err(anyhow::anyhow!(
+            "404 Not Found: The requested file does not exist"
+        ));
+    }
 
     let total_size = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
         // Server supports range requests if it returns 206 Partial Content
