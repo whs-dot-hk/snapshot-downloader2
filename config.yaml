@@ -16,6 +16,10 @@ chain_id: "cosmoshub-4"
 # Moniker (node name) to use when initializing
 moniker: "my-cosmos-node"
 
+# Command to execute after snapshot extraction (optional)
+# This will only run if a snapshot is successfully extracted
+post_snapshot_command: "echo 'Snapshot extraction completed'"
+
 # Configuration overrides for app.toml
 # These values will be merged with the existing app.toml file
 app_yaml:

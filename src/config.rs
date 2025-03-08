@@ -15,6 +15,8 @@ pub struct Config {
     pub app_yaml: Option<YamlValue>,
     #[serde(default)]
     pub config_yaml: Option<YamlValue>,
+    #[serde(default)]
+    pub post_snapshot_command: Option<String>,
 
     #[serde(skip)]
     pub base_dir: PathBuf,

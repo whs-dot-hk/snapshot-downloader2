@@ -40,9 +40,13 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to download snapshot")?;
 
-    // Extract snapshot
-    extract::extract_snapshot(&snapshot_path, &config.home_dir)
-        .context("Failed to extract snapshot")?;
+    // Extract snapshot and run post-snapshot command if configured
+    extract::extract_snapshot(
+        &snapshot_path,
+        &config.home_dir,
+        config.post_snapshot_command.as_deref(),
+    )
+    .context("Failed to extract snapshot")?;
 
     info!("Snapshot downloader completed successfully!");
 
