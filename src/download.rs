@@ -93,7 +93,7 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     let pb = ProgressBar::new(total_size);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
             .progress_chars("#>-"),
     );
 
