@@ -22,8 +22,8 @@ impl TomlModifier {
     /// Apply configuration changes to app.toml and config.toml based on YAML configuration
     pub fn apply_config_changes(
         &self,
-        app_yaml: Option<YamlValue>,
-        config_yaml: Option<YamlValue>,
+        app_yaml: Option<&YamlValue>,
+        config_yaml: Option<&YamlValue>,
     ) -> Result<()> {
         if let Some(app_config) = app_yaml {
             self.modify_app_toml(app_config)
@@ -39,13 +39,13 @@ impl TomlModifier {
     }
 
     /// Modify app.toml with the provided YAML configuration
-    fn modify_app_toml(&self, app_yaml: YamlValue) -> Result<()> {
+    fn modify_app_toml(&self, app_yaml: &YamlValue) -> Result<()> {
         let app_toml_path = self.workspace_dir.join("home/config/app.toml");
         self.modify_toml(app_toml_path, app_yaml, "app.toml")
     }
 
     /// Modify config.toml with the provided YAML configuration
-    fn modify_config_toml(&self, config_yaml: YamlValue) -> Result<()> {
+    fn modify_config_toml(&self, config_yaml: &YamlValue) -> Result<()> {
         let config_toml_path = self.workspace_dir.join("home/config/config.toml");
         self.modify_toml(config_toml_path, config_yaml, "config.toml")
     }
@@ -54,7 +54,7 @@ impl TomlModifier {
     fn modify_toml(
         &self,
         toml_path: PathBuf,
-        yaml_config: YamlValue,
+        yaml_config: &YamlValue,
         file_name: &str,
     ) -> Result<()> {
         info!("Modifying {} at {}", file_name, toml_path.display());
@@ -72,7 +72,7 @@ impl TomlModifier {
 
         // Convert YAML to TOML-compatible structure and merge
         let yaml_as_toml = Self::yaml_to_toml(yaml_config)?;
-        Self::merge_toml_values(&mut toml_value, yaml_as_toml);
+        Self::merge_toml_values(&mut toml_value, &yaml_as_toml);
 
         // Write back to file
         let modified_toml = toml::to_string_pretty(&toml_value)
@@ -89,10 +89,10 @@ impl TomlModifier {
     }
 
     /// Convert YAML value to TOML value
-    fn yaml_to_toml(yaml_value: YamlValue) -> Result<TomlValue> {
+    fn yaml_to_toml(yaml_value: &YamlValue) -> Result<TomlValue> {
         match yaml_value {
             YamlValue::Null => Ok(TomlValue::String("".to_string())),
-            YamlValue::Bool(b) => Ok(TomlValue::Boolean(b)),
+            YamlValue::Bool(b) => Ok(TomlValue::Boolean(*b)),
             YamlValue::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Ok(TomlValue::Integer(i))
@@ -102,7 +102,7 @@ impl TomlModifier {
                     anyhow::bail!("Unsupported YAML number type")
                 }
             }
-            YamlValue::String(s) => Ok(TomlValue::String(s)),
+            YamlValue::String(s) => Ok(TomlValue::String(s.to_string())),
             YamlValue::Sequence(seq) => {
                 let mut toml_array = Vec::new();
                 for item in seq {
@@ -114,7 +114,7 @@ impl TomlModifier {
                 let mut toml_table = Table::new();
                 for (key, value) in map {
                     if let YamlValue::String(key_str) = key {
-                        toml_table.insert(key_str, Self::yaml_to_toml(value)?);
+                        toml_table.insert(key_str.to_string(), Self::yaml_to_toml(value)?);
                     } else {
                         anyhow::bail!("YAML mapping key must be a string");
                     }
@@ -123,31 +123,31 @@ impl TomlModifier {
             }
             YamlValue::Tagged(tagged) => {
                 // For tagged values, we just use the value and ignore the tag
-                Self::yaml_to_toml(tagged.value)
+                Self::yaml_to_toml(&tagged.value)
             }
         }
     }
 
     /// Recursively merge TOML values, preserving existing structure
-    fn merge_toml_values(target: &mut TomlValue, source: TomlValue) {
+    fn merge_toml_values(target: &mut TomlValue, source: &TomlValue) {
         match (target, source) {
             (TomlValue::Table(target_table), TomlValue::Table(source_table)) => {
                 for (key, source_value) in source_table {
-                    match target_table.get_mut(&key) {
+                    match target_table.get_mut(key.as_str()) {
                         Some(target_value) => {
                             // Recursively merge if both are tables
                             Self::merge_toml_values(target_value, source_value);
                         }
                         None => {
                             // Insert new key-value pair
-                            target_table.insert(key, source_value);
+                            target_table.insert(key.to_string(), source_value.clone());
                         }
                     }
                 }
             }
             (target, source) => {
                 // For non-table values, replace the target with the source
-                *target = source;
+                *target = source.clone();
             }
         }
     }

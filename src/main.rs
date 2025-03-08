@@ -46,17 +46,15 @@ async fn main() -> Result<()> {
 
     info!("Snapshot downloader completed successfully!");
 
-    // Start the binary
-    runner::run_binary_start(&config).context("Failed to start binary")?;
-
-    // After setting up the node, apply TOML configuration changes if specified
-    if config.app_yaml.is_some() || config.config_yaml.is_some() {
+    if config.app_yaml.as_ref().is_some() || config.config_yaml.as_ref().is_some() {
         info!("Applying configuration changes to TOML files");
         let toml_modifier = TomlModifier::new(&config.workspace_dir);
         toml_modifier
-            .apply_config_changes(config.app_yaml, config.config_yaml)
+            .apply_config_changes(config.app_yaml.as_ref(), config.config_yaml.as_ref())
             .context("Failed to apply TOML configuration changes")?;
     }
+
+    runner::run_binary_start(&config).context("Failed to start binary")?;
 
     Ok(())
 }
