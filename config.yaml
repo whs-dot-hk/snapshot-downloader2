@@ -1,0 +1,13 @@
+# Snapshot Downloader Configuration
+
+# URL for the snapshot to download
+snapshot_url: "https://example.com/cosmos-snapshot.tar.gz"
+
+# URL for the binary to download
+binary_url: "https://example.com/cosmos-binary.tar.gz"
+
+# Chain ID for the Cosmos network
+chain_id: "cosmoshub-4"
+
+# Moniker (node name) to use when initializing
+moniker: "my-cosmos-node" 
