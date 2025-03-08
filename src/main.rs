@@ -30,8 +30,7 @@ async fn main() -> Result<()> {
         .context("Failed to extract binary")?;
 
     // Run binary init
-    runner::run_binary_init(&config)
-        .context("Failed to initialize binary")?;
+    runner::run_binary_init(&config).context("Failed to initialize binary")?;
 
     // Download snapshot
     let snapshot_path =

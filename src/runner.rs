@@ -5,7 +5,18 @@ use tracing::{debug, info, warn};
 
 use crate::config::Config;
 
+pub fn genesis_exists(config: &Config) -> bool {
+    let genesis_path = config.home_dir.join("config").join("genesis.json");
+    debug!("Checking for genesis file at: {:?}", genesis_path);
+    genesis_path.exists()
+}
+
 pub fn run_binary_init(config: &Config) -> Result<()> {
+    if genesis_exists(config) {
+        info!("Genesis file already exists, skipping initialization");
+        return Ok(());
+    }
+
     info!("Initializing binary...");
 
     let binary_path = config.workspace_dir.join(&config.binary_relative_path);
