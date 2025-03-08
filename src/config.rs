@@ -8,6 +8,7 @@ use tracing::{debug, info, trace, warn};
 pub struct Config {
     pub snapshot_url: String,
     pub binary_url: String,
+    pub binary_relative_path: String,
     pub chain_id: String,
     pub moniker: String,
 
@@ -19,8 +20,6 @@ pub struct Config {
     pub workspace_dir: PathBuf,
     #[serde(skip)]
     pub home_dir: PathBuf,
-    #[serde(skip)]
-    pub bin_dir: PathBuf,
 }
 
 pub fn load_config() -> Result<Config> {
@@ -48,13 +47,11 @@ pub fn load_config() -> Result<Config> {
     config.downloads_dir = config.base_dir.join("downloads");
     config.workspace_dir = config.base_dir.join("workspace");
     config.home_dir = config.workspace_dir.join("home");
-    config.bin_dir = config.workspace_dir.join("bin");
 
     debug!("Base directory: {:?}", config.base_dir);
     debug!("Downloads directory: {:?}", config.downloads_dir);
     debug!("Workspace directory: {:?}", config.workspace_dir);
     debug!("Home directory: {:?}", config.home_dir);
-    debug!("Bin directory: {:?}", config.bin_dir);
 
     info!("Configuration loaded successfully");
     Ok(config)

@@ -6,6 +6,10 @@ snapshot_url: "https://example.com/cosmos-snapshot.tar.gz"
 # URL for the binary to download
 binary_url: "https://example.com/cosmos-binary.tar.gz"
 
+# Relative path to the binary within the workspace directory
+# This is used to locate the binary after extraction
+binary_relative_path: "bin/gaiad"
+
 # Chain ID for the Cosmos network
 chain_id: "cosmoshub-4"
 

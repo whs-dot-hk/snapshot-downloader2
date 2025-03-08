@@ -17,9 +17,6 @@ pub fn create_directories(config: &Config) -> Result<()> {
     // Create home directory
     fs::create_dir_all(&config.home_dir)?;
 
-    // Create bin directory
-    fs::create_dir_all(&config.bin_dir)?;
-
     Ok(())
 }
 

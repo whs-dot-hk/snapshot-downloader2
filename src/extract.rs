@@ -38,9 +38,8 @@ pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<PathBuf
 
 pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<PathBuf> {
     info!("Extracting binary...");
-    let bin_dir = workspace_dir.join("bin");
-    debug!("Binary extraction target directory: {:?}", bin_dir);
-    extract_archive(binary_path, &bin_dir)
+    debug!("Binary extraction target directory: {:?}", workspace_dir);
+    extract_archive(binary_path, workspace_dir)
 }
 
 pub fn extract_snapshot(snapshot_path: &Path, home_dir: &Path) -> Result<()> {

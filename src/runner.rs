@@ -5,8 +5,10 @@ use tracing::{debug, info, warn};
 
 use crate::config::Config;
 
-pub fn run_binary_init(binary_path: &Path, config: &Config) -> Result<()> {
+pub fn run_binary_init(config: &Config) -> Result<()> {
     info!("Initializing binary...");
+
+    let binary_path = config.workspace_dir.join(&config.binary_relative_path);
 
     // Get absolute paths
     let binary_abs_path = binary_path.canonicalize()?;
