@@ -63,16 +63,6 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
         return Ok(file_path);
     }
 
-    // Set up progress bar
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-            .unwrap()
-            .progress_chars("#>-"),
-    );
-    pb.set_position(file_size);
-
     // Prepare request with range header for resuming
     let mut request = client.get(url);
     if file_size > 0 {
@@ -87,7 +77,6 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     // Handle potential 416 Range Not Satisfiable error (file already complete)
     if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         info!("{} is already downloaded completely", file_type);
-        pb.finish();
         return Ok(file_path);
     }
 
@@ -99,6 +88,16 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
             response.status()
         ));
     }
+
+    // Set up progress bar now that we know we'll be downloading
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
+            .progress_chars("#>-"),
+    );
+
+    pb.set_position(file_size);
 
     // Open file for writing, with append mode if resuming
     let mut file = fs::OpenOptions::new()
