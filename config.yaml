@@ -14,4 +14,25 @@ binary_relative_path: "bin/gaiad"
 chain_id: "cosmoshub-4"
 
 # Moniker (node name) to use when initializing
-moniker: "my-cosmos-node" 
+moniker: "my-cosmos-node"
+
+# Configuration overrides for app.toml
+# These values will be merged with the existing app.toml file
+app_yaml:
+  api:
+    enable: true
+    swagger: true
+  grpc:
+    enable: true
+  pruning: "custom"
+  pruning-keep-recent: "100"
+  pruning-interval: "10"
+
+# Configuration overrides for config.toml
+# These values will be merged with the existing config.toml file
+config_yaml:
+  rpc:
+    laddr: "tcp://0.0.0.0:26657"
+  p2p:
+    seeds: "seed1.example.com:26656,seed2.example.com:26656"
+    persistent_peers: "peer1.example.com:26656,peer2.example.com:26656" 

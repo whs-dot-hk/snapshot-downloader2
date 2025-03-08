@@ -1,12 +1,12 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use flate2::read::GzDecoder;
 use lz4::Decoder;
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tar::Archive;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
-pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<PathBuf> {
+pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     info!("Extracting archive: {:?}", archive_path);
 
     fs::create_dir_all(target_dir)?;
@@ -15,11 +15,11 @@ pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<PathBuf
         match extension.to_str() {
             Some("gz") | Some("tgz") => {
                 extract_tar_gz(archive_path, target_dir)?;
-                Ok(target_dir.to_path_buf())
+                Ok(())
             }
             Some("lz4") => {
                 extract_tar_lz4(archive_path, target_dir)?;
-                Ok(target_dir.to_path_buf())
+                Ok(())
             }
             _ => {
                 warn!("Unsupported archive format: {:?}", extension);
@@ -36,7 +36,7 @@ pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<PathBuf
     }
 }
 
-pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<PathBuf> {
+pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<()> {
     info!("Extracting binary...");
     debug!("Binary extraction target directory: {:?}", workspace_dir);
     extract_archive(binary_path, workspace_dir)
@@ -45,8 +45,7 @@ pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<PathBu
 pub fn extract_snapshot(snapshot_path: &Path, home_dir: &Path) -> Result<()> {
     info!("Extracting snapshot...");
     debug!("Snapshot extraction target directory: {:?}", home_dir);
-    extract_archive(snapshot_path, home_dir)?;
-    Ok(())
+    extract_archive(snapshot_path, home_dir)
 }
 
 fn extract_tar_gz(archive_path: &Path, target_dir: &Path) -> Result<()> {

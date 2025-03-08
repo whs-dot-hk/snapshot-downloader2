@@ -2,10 +2,9 @@ use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::header::{CONTENT_LENGTH, RANGE};
-use std::fs::{self, File};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::fs;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, trace};
 
 pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> Result<PathBuf> {
@@ -14,7 +13,7 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     // Create filename from URL
     let file_name = url
         .split('/')
-        .last()
+        .next_back()
         .context("Failed to determine filename from URL")?;
 
     let file_path = download_dir.join(file_name);
@@ -42,7 +41,7 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
             .and_then(|val| {
                 // Parse content-range header like "bytes 0-0/12345"
                 val.split('/')
-                    .last()
+                    .next_back()
                     .and_then(|size| size.parse::<u64>().ok())
             })
             .unwrap_or(0)

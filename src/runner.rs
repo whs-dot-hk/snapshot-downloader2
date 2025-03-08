@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use std::path::Path;
 use std::process::Command;
 use tracing::{debug, info, warn};
 
@@ -93,10 +92,8 @@ pub fn run_binary_start(config: &Config) -> Result<()> {
         let stdout_reader = BufReader::new(stdout);
 
         std::thread::spawn(move || {
-            for line in stdout_reader.lines() {
-                if let Ok(line) = line {
-                    println!("[STDOUT] {}", line);
-                }
+            for line in stdout_reader.lines().map_while(Result::ok) {
+                println!("[STDOUT] {}", line);
             }
         });
     }
@@ -107,10 +104,8 @@ pub fn run_binary_start(config: &Config) -> Result<()> {
         let stderr_reader = BufReader::new(stderr);
 
         std::thread::spawn(move || {
-            for line in stderr_reader.lines() {
-                if let Ok(line) = line {
-                    eprintln!("[STDERR] {}", line);
-                }
+            for line in stderr_reader.lines().map_while(Result::ok) {
+                eprintln!("[STDERR] {}", line);
             }
         });
     }

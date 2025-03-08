@@ -1,13 +1,15 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
-use std::process;
-use tracing::{error, info};
+use tracing::info;
 
 mod config;
 mod download;
 mod extract;
 mod runner;
+mod toml_modifier;
 mod utils;
+
+use config::Config;
+use toml_modifier::TomlModifier;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,7 +17,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // Load configuration
-    let config = config::load_config().context("Failed to load configuration")?;
+    let config = Config::from_file("config.yaml").context("Failed to load configuration")?;
 
     // Create required directories
     utils::create_directories(&config).context("Failed to create required directories")?;
@@ -26,7 +28,7 @@ async fn main() -> Result<()> {
         .context("Failed to download binary")?;
 
     // Extract binary
-    let binary_extract_path = extract::extract_binary(&binary_path, &config.workspace_dir)
+    extract::extract_binary(&binary_path, &config.workspace_dir)
         .context("Failed to extract binary")?;
 
     // Run binary init
@@ -46,6 +48,15 @@ async fn main() -> Result<()> {
 
     // Start the binary
     runner::run_binary_start(&config).context("Failed to start binary")?;
+
+    // After setting up the node, apply TOML configuration changes if specified
+    if config.app_yaml.is_some() || config.config_yaml.is_some() {
+        info!("Applying configuration changes to TOML files");
+        let toml_modifier = TomlModifier::new(&config.workspace_dir);
+        toml_modifier
+            .apply_config_changes(config.app_yaml, config.config_yaml)
+            .context("Failed to apply TOML configuration changes")?;
+    }
 
     Ok(())
 }
