@@ -77,21 +77,54 @@ pub fn run_binary_start(config: &Config) -> Result<()> {
 
     // Run the binary start command
     info!("Running binary start command");
-    let output = Command::new(&binary_abs_path)
+    let mut child = Command::new(&binary_abs_path)
         .arg("start")
         .arg("--home")
         .arg(&home_abs_path)
-        .output()?;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to spawn binary process")?;
 
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        warn!("Binary start failed: {}", error);
-        return Err(anyhow::anyhow!("Binary start failed: {}", error));
+    info!("Binary process started, streaming logs...");
+
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::{BufRead, BufReader};
+        let stdout_reader = BufReader::new(stdout);
+
+        std::thread::spawn(move || {
+            for line in stdout_reader.lines() {
+                if let Ok(line) = line {
+                    println!("[STDOUT] {}", line);
+                }
+            }
+        });
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    debug!("Binary start output: {}", stdout);
-    info!("Binary started successfully");
+    // Stream stderr
+    if let Some(stderr) = child.stderr.take() {
+        use std::io::{BufRead, BufReader};
+        let stderr_reader = BufReader::new(stderr);
+
+        std::thread::spawn(move || {
+            for line in stderr_reader.lines() {
+                if let Ok(line) = line {
+                    eprintln!("[STDERR] {}", line);
+                }
+            }
+        });
+    }
+
+    // Wait for the process to complete
+    let status = child.wait().context("Failed to wait for binary process")?;
+
+    if !status.success() {
+        warn!("Binary start failed with exit code: {:?}", status.code());
+        return Err(anyhow::anyhow!(
+            "Binary start failed with exit code: {:?}",
+            status.code()
+        ));
+    }
 
     Ok(())
 }
