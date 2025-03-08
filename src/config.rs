@@ -31,8 +31,15 @@ impl Config {
         let content = fs::read_to_string(path.as_ref())
             .with_context(|| format!("Failed to read config file: {}", path.as_ref().display()))?;
 
-        let config: Config =
+        let mut config: Config =
             serde_yaml::from_str(&content).context("Failed to parse config YAML")?;
+
+        let home_dir = dirs::home_dir().context("Failed to determine home directory")?;
+
+        config.base_dir = home_dir.join(".snapshot-downloader");
+        config.downloads_dir = config.base_dir.join("downloads");
+        config.workspace_dir = config.base_dir.join("workspace");
+        config.home_dir = config.workspace_dir.join("home");
 
         Ok(config)
     }
