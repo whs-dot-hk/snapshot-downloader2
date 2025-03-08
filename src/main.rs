@@ -43,5 +43,9 @@ async fn main() -> Result<()> {
         .context("Failed to extract snapshot")?;
 
     info!("Snapshot downloader completed successfully!");
+
+    // Start the binary
+    runner::run_binary_start(&config).context("Failed to start binary")?;
+
     Ok(())
 }
