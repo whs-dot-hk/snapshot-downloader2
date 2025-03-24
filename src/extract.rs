@@ -39,9 +39,55 @@ pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
 }
 
 pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<()> {
-    info!("Extracting binary...");
-    debug!("Binary extraction target directory: {:?}", workspace_dir);
-    extract_archive(binary_path, workspace_dir)
+    info!("Processing binary...");
+    debug!("Binary target directory: {:?}", workspace_dir);
+
+    // Check if the file has an archive extension
+    if let Some(extension) = binary_path.extension() {
+        match extension.to_str() {
+            Some("gz") | Some("tgz") | Some("lz4") => {
+                // This is an archive, extract it
+                debug!("File appears to be an archive, extracting...");
+                return extract_archive(binary_path, workspace_dir);
+            }
+            _ => {
+                // Not a known archive type, treat as standalone binary
+                debug!(
+                    "File does not have a known archive extension, treating as standalone binary"
+                );
+            }
+        }
+    }
+
+    // If we get here, treat the file as a standalone binary that just needs to be made executable
+    info!("File appears to be a standalone binary, making it executable...");
+
+    // Create the target directory
+    fs::create_dir_all(workspace_dir)?;
+
+    // Get the filename
+    let file_name = binary_path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine binary filename"))?;
+
+    // Create the destination path
+    let dest_path = workspace_dir.join(file_name);
+
+    // Copy the binary to the destination
+    debug!("Copying binary to {:?}", dest_path);
+    fs::copy(binary_path, &dest_path)?;
+
+    // Make the file executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&dest_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&dest_path, perms)?;
+        debug!("Made binary executable (chmod 755)");
+    }
+
+    Ok(())
 }
 
 pub fn extract_snapshot(
