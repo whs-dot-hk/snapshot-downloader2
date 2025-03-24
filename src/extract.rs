@@ -38,9 +38,14 @@ pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     }
 }
 
-pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<()> {
+pub fn extract_binary(
+    binary_path: &Path,
+    workspace_dir: &Path,
+    binary_relative_path: &str,
+) -> Result<()> {
     info!("Processing binary...");
     debug!("Binary target directory: {:?}", workspace_dir);
+    debug!("Binary relative path: {}", binary_relative_path);
 
     // Check if the file has an archive extension
     if let Some(extension) = binary_path.extension() {
@@ -62,16 +67,14 @@ pub fn extract_binary(binary_path: &Path, workspace_dir: &Path) -> Result<()> {
     // If we get here, treat the file as a standalone binary that just needs to be made executable
     info!("File appears to be a standalone binary, making it executable...");
 
-    // Create the target directory
-    fs::create_dir_all(workspace_dir)?;
+    // Create the full destination path based on binary_relative_path
+    let dest_path = workspace_dir.join(binary_relative_path);
 
-    // Get the filename
-    let file_name = binary_path
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine binary filename"))?;
-
-    // Create the destination path
-    let dest_path = workspace_dir.join(file_name);
+    // Create the parent directory structure if it doesn't exist
+    if let Some(parent) = dest_path.parent() {
+        debug!("Creating directory structure: {:?}", parent);
+        fs::create_dir_all(parent)?;
+    }
 
     // Copy the binary to the destination
     debug!("Copying binary to {:?}", dest_path);
