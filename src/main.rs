@@ -1,5 +1,14 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use tracing::info;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Skip downloading the snapshot (use existing snapshot file)
+    #[arg(long)]
+    skip_download_snapshot: bool,
+}
 
 mod config;
 mod download;
@@ -13,6 +22,9 @@ use toml_modifier::TomlModifier;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse command line arguments
+    let args = Args::parse();
+
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
@@ -38,11 +50,20 @@ async fn main() -> Result<()> {
     // Run binary init
     runner::run_binary_init(&config).context("Failed to initialize binary")?;
 
-    // Download snapshot
-    let snapshot_path =
+    // Handle snapshot
+    let snapshot_path = if args.skip_download_snapshot {
+        info!("Skipping snapshot download, using existing snapshot file");
+        let snapshot_filename = config
+            .snapshot_url
+            .split('/')
+            .next_back()
+            .context("Failed to determine filename from snapshot URL")?;
+        config.downloads_dir.join(snapshot_filename)
+    } else {
         download::download_file(&config.snapshot_url, &config.downloads_dir, "snapshot")
             .await
-            .context("Failed to download snapshot")?;
+            .context("Failed to download snapshot")?
+    };
 
     // Extract snapshot and run post-snapshot command if configured
     extract::extract_snapshot(

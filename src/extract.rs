@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use tar::Archive;
 use tracing::{debug, info, warn};
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     info!("Extracting archive: {:?}", archive_path);
@@ -23,10 +24,14 @@ pub fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
                 extract_tar_lz4(archive_path, target_dir)?;
                 Ok(())
             }
+            Some("zst") => {
+                extract_tar_zst(archive_path, target_dir)?;
+                Ok(())
+            }
             _ => {
                 warn!("Unsupported archive format: {:?}", extension);
                 Err(anyhow::anyhow!(
-                    "Unsupported archive format. Only tar.gz and tar.lz4 are supported."
+                    "Unsupported archive format. Only tar.gz, tar.lz4, and tar.zst are supported."
                 ))
             }
         }
@@ -50,7 +55,7 @@ pub fn extract_binary(
     // Check if the file has an archive extension
     if let Some(extension) = binary_path.extension() {
         match extension.to_str() {
-            Some("gz") | Some("tgz") | Some("lz4") => {
+            Some("gz") | Some("tgz") | Some("lz4") | Some("zst") => {
                 // This is an archive, extract it
                 debug!("File appears to be an archive, extracting...");
                 return extract_archive(binary_path, workspace_dir);
@@ -162,6 +167,15 @@ fn extract_tar_gz(archive_path: &Path, target_dir: &Path) -> Result<()> {
     let file = File::open(archive_path)?;
     let tar = GzDecoder::new(file);
     let mut archive = Archive::new(tar);
+    archive.unpack(target_dir)?;
+    Ok(())
+}
+
+fn extract_tar_zst(archive_path: &Path, target_dir: &Path) -> Result<()> {
+    info!("Extracting tar.zst archive...");
+    let file = File::open(archive_path)?;
+    let decoder = ZstdDecoder::new(file)?;
+    let mut archive = Archive::new(decoder);
     archive.unpack(target_dir)?;
     Ok(())
 }

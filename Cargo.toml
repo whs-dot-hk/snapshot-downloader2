@@ -22,3 +22,5 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 lz4 = "1.28.1"
 toml = "0.8.20"
+zstd = "0.13.3"
+clap = { version = "4.5.32", features = ["derive"] }
