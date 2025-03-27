@@ -8,6 +8,10 @@ struct Args {
     /// Skip downloading the snapshot (use existing snapshot file)
     #[arg(long)]
     skip_download_snapshot: bool,
+
+    /// Skip extracting the snapshot
+    #[arg(long)]
+    skip_extract_snapshot: bool,
 }
 
 mod config;
@@ -66,12 +70,16 @@ async fn main() -> Result<()> {
     };
 
     // Extract snapshot and run post-snapshot command if configured
-    extract::extract_snapshot(
-        &snapshot_path,
-        &config.home_dir,
-        config.post_snapshot_command.as_deref(),
-    )
-    .context("Failed to extract snapshot")?;
+    if args.skip_extract_snapshot {
+        info!("Skipping snapshot extraction");
+    } else {
+        extract::extract_snapshot(
+            &snapshot_path,
+            &config.home_dir,
+            config.post_snapshot_command.as_deref(),
+        )
+        .context("Failed to extract snapshot")?;
+    }
 
     info!("Snapshot downloader completed successfully!");
 
