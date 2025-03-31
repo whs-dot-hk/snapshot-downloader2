@@ -54,7 +54,7 @@ pub fn run_binary_init(config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn run_binary_start(config: &Config) -> Result<()> {
+pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
     info!("Starting binary...");
 
     let binary_path = config.workspace_dir.join(&config.binary_relative_path);
@@ -110,16 +110,31 @@ pub fn run_binary_start(config: &Config) -> Result<()> {
         });
     }
 
-    // Wait for the process to complete
-    let status = child.wait().context("Failed to wait for binary process")?;
+    // Return the child process handle instead of waiting for it to complete
+    Ok(child)
+}
 
-    if !status.success() {
-        warn!("Binary start failed with exit code: {:?}", status.code());
-        return Err(anyhow::anyhow!(
-            "Binary start failed with exit code: {:?}",
-            status.code()
-        ));
+/// Gracefully terminates the provided child process
+pub fn terminate_process(mut child: std::process::Child) -> Result<()> {
+    info!("Gracefully shutting down binary process...");
+
+    // Send termination signal to the process
+    if let Err(e) = child.kill() {
+        warn!("Failed to send termination signal: {}", e);
+        return Err(anyhow::anyhow!("Failed to terminate process: {}", e));
     }
+    info!("Termination signal sent to process {}", child.id());
 
-    Ok(())
+    // Wait for the process to exit
+    info!("Waiting for process to exit...");
+    match child.wait() {
+        Ok(status) => {
+            info!("Process exited with status: {:?}", status);
+            Ok(())
+        }
+        Err(e) => {
+            warn!("Error waiting for process to exit: {}", e);
+            Err(anyhow::anyhow!("Failed to wait for process: {}", e))
+        }
+    }
 }

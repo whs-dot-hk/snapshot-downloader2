@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use tracing::info;
+use tokio::sync::oneshot;
+use tracing::{info, warn};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -91,7 +92,79 @@ async fn main() -> Result<()> {
             .context("Failed to apply TOML configuration changes")?;
     }
 
-    runner::run_binary_start(&config).context("Failed to start binary")?;
+    // Start the binary and get the process handle
+    let mut binary_process = runner::run_binary_start(&config).context("Failed to start binary")?;
 
+    // Store the process ID for later use
+    let process_id = binary_process.id();
+
+    // Set up channels to communicate between tasks
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (exit_tx, exit_rx) = oneshot::channel();
+
+    // Spawn a task to handle termination signals in a cross-platform way
+    let signal_task = tokio::spawn(async move {
+        // Wait for ctrl-c signal
+        match tokio::signal::ctrl_c().await {
+            Ok(_) => {
+                info!("Received Ctrl+C, initiating graceful shutdown...");
+            }
+            Err(err) => {
+                warn!("Unable to listen for shutdown signal: {}", err);
+                return;
+            }
+        }
+
+        // Signal the main task that we should shut down
+        let _ = shutdown_tx.send(());
+    });
+
+    // Create a separate task that just waits for the process to exit
+    // This avoids ownership issues with binary_process
+    let process_wait_task = tokio::task::spawn_blocking(move || {
+        let result = binary_process.wait();
+        let _ = exit_tx.send(result); // Send the result back to the main task
+        binary_process // Return ownership of the process back
+    });
+
+    // Block the main thread until we receive a shutdown signal OR the process exits on its own
+    tokio::select! {
+        _ = shutdown_rx => {
+            info!("Shutdown signal received, terminating process {}", process_id);
+            // Abort the waiting task to get the process handle back
+            process_wait_task.abort();
+
+            // Try to get the process handle back from the aborted task
+            match process_wait_task.await {
+                Ok(binary_process) => {
+                    // Call our graceful termination function
+                    if let Err(e) = runner::terminate_process(binary_process) {
+                        warn!("Error during graceful shutdown: {}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!("Could not get binary process handle back for termination: {}", e);
+                }
+            }
+        }
+        exit_status = exit_rx => {
+            match exit_status {
+                Ok(Ok(status)) => {
+                    info!("Binary process exited with status: {:?}", status);
+                }
+                Ok(Err(e)) => {
+                    warn!("Error waiting for binary process: {}", e);
+                }
+                Err(_) => {
+                    warn!("Failed to receive process exit status");
+                }
+            }
+        }
+    }
+
+    // Clean up the signal task
+    signal_task.abort();
+
+    info!("Graceful shutdown complete");
     Ok(())
 }
