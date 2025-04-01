@@ -13,6 +13,10 @@ struct Args {
     /// Skip extracting the snapshot
     #[arg(long)]
     skip_extract_snapshot: bool,
+
+    /// Skip downloading and extracting the binary
+    #[arg(long)]
+    skip_binary_download: bool,
 }
 
 mod config;
@@ -39,18 +43,26 @@ async fn main() -> Result<()> {
     // Create required directories
     utils::create_directories(&config).context("Failed to create required directories")?;
 
-    // Download binary
-    let binary_path = download::download_file(&config.binary_url, &config.downloads_dir, "binary")
-        .await
-        .context("Failed to download binary")?;
+    // Handle binary download and extraction
+    if !args.skip_binary_download {
+        info!("Downloading and extracting binary...");
+        // Download binary
+        let binary_path =
+            download::download_file(&config.binary_url, &config.downloads_dir, "binary")
+                .await
+                .context("Failed to download binary")?;
 
-    // Extract binary
-    extract::extract_binary(
-        &binary_path,
-        &config.workspace_dir,
-        &config.binary_relative_path,
-    )
-    .context("Failed to extract binary")?;
+        // Extract binary
+        extract::extract_binary(
+            &binary_path,
+            &config.workspace_dir,
+            &config.binary_relative_path,
+        )
+        .context("Failed to extract binary")?;
+        info!("Binary download and extraction complete.");
+    } else {
+        info!("Skipping binary download and extraction");
+    }
 
     // Run binary init
     runner::run_binary_init(&config).context("Failed to initialize binary")?;

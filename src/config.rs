@@ -17,6 +17,8 @@ pub struct Config {
     pub config_yaml: Option<YamlValue>,
     #[serde(default)]
     pub post_snapshot_command: Option<String>,
+    #[serde(default)]
+    pub chain_home_dir: Option<String>,
 
     #[serde(skip)]
     pub base_dir: PathBuf,
@@ -36,12 +38,15 @@ impl Config {
         let mut config: Config =
             serde_yaml::from_str(&content).context("Failed to parse config YAML")?;
 
-        let home_dir = dirs::home_dir().context("Failed to determine home directory")?;
+        let user_home_dir = dirs::home_dir().context("Failed to determine user home directory")?;
 
-        config.base_dir = home_dir.join(".snapshot-downloader");
+        config.base_dir = user_home_dir.join(".snapshot-downloader");
         config.downloads_dir = config.base_dir.join("downloads");
         config.workspace_dir = config.base_dir.join("workspace");
-        config.home_dir = config.workspace_dir.join("home");
+        config.home_dir = match config.chain_home_dir.as_ref() {
+            Some(custom_home) => PathBuf::from(custom_home),
+            None => config.workspace_dir.join("home"),
+        };
 
         Ok(config)
     }

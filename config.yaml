@@ -16,6 +16,10 @@ chain_id: "cosmoshub-4"
 # Moniker (node name) to use when initializing
 moniker: "my-cosmos-node"
 
+# Custom home directory for the chain (optional)
+# If not specified, defaults to ~/.snapshot-downloader/workspace/home
+# chain_home_dir: "/mnt/data/cosmos-home"
+
 # Command to execute after snapshot extraction (optional)
 # This will only run if a snapshot is successfully extracted
 post_snapshot_command: "echo 'Snapshot extraction completed'"
