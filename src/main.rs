@@ -104,6 +104,43 @@ async fn main() -> Result<()> {
             .context("Failed to apply TOML configuration changes")?;
     }
 
+    // Download addrbook if configured
+    if let Some(addrbook_url) = &config.addrbook_url {
+        info!("Downloading addrbook from {}", addrbook_url);
+        let downloaded_addrbook_path =
+            download::download_file(addrbook_url, &config.downloads_dir, "addrbook")
+                .await
+                .context("Failed to download addrbook")?;
+
+        let target_addrbook_dir = config.home_dir.join("config");
+        let target_addrbook_path = target_addrbook_dir.join("addrbook.json"); // Assuming standard name
+
+        // Ensure target directory exists
+        tokio::fs::create_dir_all(&target_addrbook_dir)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to create directory: {}",
+                    target_addrbook_dir.display()
+                )
+            })?;
+
+        // Move the downloaded file
+        tokio::fs::rename(&downloaded_addrbook_path, &target_addrbook_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to move addrbook from {} to {}",
+                    downloaded_addrbook_path.display(),
+                    target_addrbook_path.display()
+                )
+            })?;
+        info!(
+            "Addrbook downloaded and moved to {}",
+            target_addrbook_path.display()
+        );
+    }
+
     // Start the binary and get the process handle
     let mut binary_process = runner::run_binary_start(&config).context("Failed to start binary")?;
 

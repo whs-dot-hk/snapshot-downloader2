@@ -20,6 +20,10 @@ moniker: "my-cosmos-node"
 # If not specified, defaults to ~/.snapshot-downloader/workspace/home
 # chain_home_dir: "/mnt/data/cosmos-home"
 
+# URL for the addrbook.json file (optional)
+# If specified, this file will be downloaded and placed in the config directory
+# addrbook_url: "https://example.com/addrbook.json"
+
 # Command to execute after snapshot extraction (optional)
 # This will only run if a snapshot is successfully extracted
 post_snapshot_command: "echo 'Snapshot extraction completed'"
@@ -43,4 +47,4 @@ config_yaml:
     laddr: "tcp://0.0.0.0:26657"
   p2p:
     seeds: "seed1.example.com:26656,seed2.example.com:26656"
-    persistent_peers: "peer1.example.com:26656,peer2.example.com:26656" 
+    persistent_peers: "peer1.example.com:26656,peer2.example.com:26656"

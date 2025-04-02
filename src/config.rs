@@ -19,7 +19,8 @@ pub struct Config {
     pub post_snapshot_command: Option<String>,
     #[serde(default)]
     pub chain_home_dir: Option<String>,
-
+    #[serde(default)]
+    pub addrbook_url: Option<String>,
     #[serde(skip)]
     pub base_dir: PathBuf,
     #[serde(skip)]
