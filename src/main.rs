@@ -17,6 +17,10 @@ struct Args {
     /// Skip downloading and extracting the binary
     #[arg(long)]
     skip_binary_download: bool,
+
+    /// Skip downloading the address book
+    #[arg(long)]
+    skip_addrbook_download: bool,
 }
 
 mod config;
@@ -106,50 +110,54 @@ async fn main() -> Result<()> {
 
     // Download addrbook if configured
     if let Some(addrbook_url) = &config.addrbook_url {
-        info!("Downloading addrbook from {}", addrbook_url);
-        let downloaded_addrbook_path =
-            download::download_file(addrbook_url, &config.downloads_dir, "addrbook")
+        if args.skip_addrbook_download {
+            info!("Skipping address book download");
+        } else {
+            info!("Downloading addrbook from {}", addrbook_url);
+            let downloaded_addrbook_path =
+                download::download_file(addrbook_url, &config.downloads_dir, "addrbook")
+                    .await
+                    .context("Failed to download addrbook")?;
+
+            let target_addrbook_dir = config.home_dir.join("config");
+            let target_addrbook_path = target_addrbook_dir.join("addrbook.json"); // Assuming standard name
+
+            // Ensure target directory exists
+            tokio::fs::create_dir_all(&target_addrbook_dir)
                 .await
-                .context("Failed to download addrbook")?;
+                .with_context(|| {
+                    format!(
+                        "Failed to create directory: {}",
+                        target_addrbook_dir.display()
+                    )
+                })?;
 
-        let target_addrbook_dir = config.home_dir.join("config");
-        let target_addrbook_path = target_addrbook_dir.join("addrbook.json"); // Assuming standard name
+            // Copy the downloaded file
+            tokio::fs::copy(&downloaded_addrbook_path, &target_addrbook_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to copy addrbook from {} to {}",
+                        downloaded_addrbook_path.display(),
+                        target_addrbook_path.display()
+                    )
+                })?;
 
-        // Ensure target directory exists
-        tokio::fs::create_dir_all(&target_addrbook_dir)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to create directory: {}",
-                    target_addrbook_dir.display()
-                )
-            })?;
+            // Remove the original downloaded file
+            tokio::fs::remove_file(&downloaded_addrbook_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to remove original addrbook file {}",
+                        downloaded_addrbook_path.display()
+                    )
+                })?;
 
-        // Copy the downloaded file
-        tokio::fs::copy(&downloaded_addrbook_path, &target_addrbook_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to copy addrbook from {} to {}",
-                    downloaded_addrbook_path.display(),
-                    target_addrbook_path.display()
-                )
-            })?;
-
-        // Remove the original downloaded file
-        tokio::fs::remove_file(&downloaded_addrbook_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to remove original addrbook file {}",
-                    downloaded_addrbook_path.display()
-                )
-            })?;
-
-        info!(
-            "Addrbook downloaded and placed at {}", // Changed "moved to" -> "placed at" for clarity
-            target_addrbook_path.display()
-        );
+            info!(
+                "Addrbook downloaded and placed at {}", // Changed "moved to" -> "placed at" for clarity
+                target_addrbook_path.display()
+            );
+        }
     }
 
     // Start the binary and get the process handle
