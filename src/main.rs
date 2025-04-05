@@ -20,7 +20,7 @@ struct Args {
 
     /// Skip downloading the address book
     #[arg(long)]
-    skip_addrbook_download: bool,
+    skip_download_addrbook: bool,
 }
 
 mod config;
@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
 
     // Download addrbook if configured
     if let Some(addrbook_url) = &config.addrbook_url {
-        if args.skip_addrbook_download {
+        if args.skip_download_addrbook {
             info!("Skipping address book download");
         } else {
             info!("Downloading addrbook from {}", addrbook_url);
