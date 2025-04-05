@@ -6,16 +6,15 @@ use toml::value::Table;
 use toml::Value as TomlValue;
 use tracing::info;
 
-/// Handles modification of TOML configuration files based on YAML input
 pub struct TomlModifier {
-    workspace_dir: PathBuf,
+    home_dir: PathBuf,
 }
 
 impl TomlModifier {
     /// Create a new TomlModifier with the given workspace directory
-    pub fn new<P: AsRef<Path>>(workspace_dir: P) -> Self {
+    pub fn new<P: AsRef<Path>>(home_dir: P) -> Self {
         Self {
-            workspace_dir: workspace_dir.as_ref().to_path_buf(),
+            home_dir: home_dir.as_ref().to_path_buf(),
         }
     }
 
@@ -40,13 +39,13 @@ impl TomlModifier {
 
     /// Modify app.toml with the provided YAML configuration
     fn modify_app_toml(&self, app_yaml: &YamlValue) -> Result<()> {
-        let app_toml_path = self.workspace_dir.join("home/config/app.toml");
+        let app_toml_path = self.home_dir.join("config/app.toml");
         self.modify_toml(app_toml_path, app_yaml, "app.toml")
     }
 
     /// Modify config.toml with the provided YAML configuration
     fn modify_config_toml(&self, config_yaml: &YamlValue) -> Result<()> {
-        let config_toml_path = self.workspace_dir.join("home/config/config.toml");
+        let config_toml_path = self.home_dir.join("config/config.toml");
         self.modify_toml(config_toml_path, config_yaml, "config.toml")
     }
 

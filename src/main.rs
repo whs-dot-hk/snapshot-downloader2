@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
 
     if config.app_yaml.as_ref().is_some() || config.config_yaml.as_ref().is_some() {
         info!("Applying configuration changes to TOML files");
-        let toml_modifier = TomlModifier::new(&config.workspace_dir);
+        let toml_modifier = TomlModifier::new(&config.home_dir);
         toml_modifier
             .apply_config_changes(config.app_yaml.as_ref(), config.config_yaml.as_ref())
             .context("Failed to apply TOML configuration changes")?;
@@ -125,18 +125,29 @@ async fn main() -> Result<()> {
                 )
             })?;
 
-        // Move the downloaded file
-        tokio::fs::rename(&downloaded_addrbook_path, &target_addrbook_path)
+        // Copy the downloaded file
+        tokio::fs::copy(&downloaded_addrbook_path, &target_addrbook_path)
             .await
             .with_context(|| {
                 format!(
-                    "Failed to move addrbook from {} to {}",
+                    "Failed to copy addrbook from {} to {}",
                     downloaded_addrbook_path.display(),
                     target_addrbook_path.display()
                 )
             })?;
+
+        // Remove the original downloaded file
+        tokio::fs::remove_file(&downloaded_addrbook_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to remove original addrbook file {}",
+                    downloaded_addrbook_path.display()
+                )
+            })?;
+
         info!(
-            "Addrbook downloaded and moved to {}",
+            "Addrbook downloaded and placed at {}", // Changed "moved to" -> "placed at" for clarity
             target_addrbook_path.display()
         );
     }
