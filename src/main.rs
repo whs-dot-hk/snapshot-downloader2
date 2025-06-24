@@ -100,11 +100,34 @@ async fn main() -> Result<()> {
 
     info!("Snapshot downloader completed successfully!");
 
-    if config.app_yaml.as_ref().is_some() || config.config_yaml.as_ref().is_some() {
+    // Helper function to check if a YAML value is a non-empty mapping (valid for TOML modification)
+    let is_valid_yaml_config = |yaml_opt: &Option<serde_yaml::Value>| -> bool {
+        match yaml_opt {
+            Some(serde_yaml::Value::Mapping(map)) => !map.is_empty(),
+            _ => false,
+        }
+    };
+
+    // Only apply TOML modifications if there are valid (non-empty mapping) configurations
+    let should_modify_app = is_valid_yaml_config(&config.app_yaml);
+    let should_modify_config = is_valid_yaml_config(&config.config_yaml);
+
+    if should_modify_app || should_modify_config {
         info!("Applying configuration changes to TOML files");
         let toml_modifier = TomlModifier::new(&config.home_dir);
         toml_modifier
-            .apply_config_changes(config.app_yaml.as_ref(), config.config_yaml.as_ref())
+            .apply_config_changes(
+                if should_modify_app {
+                    config.app_yaml.as_ref()
+                } else {
+                    None
+                },
+                if should_modify_config {
+                    config.config_yaml.as_ref()
+                } else {
+                    None
+                },
+            )
             .context("Failed to apply TOML configuration changes")?;
     }
 
