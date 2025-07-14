@@ -1,7 +1,14 @@
 # Snapshot Downloader Configuration
 
-# URL for the snapshot to download
+# URL for the snapshot to download (for single file snapshots)
 snapshot_url: "https://example.com/cosmos-snapshot.tar.gz"
+
+# URLs for multi-part snapshots (alternative to snapshot_url)
+# If snapshot_urls is provided, it will be used instead of snapshot_url
+# snapshot_urls:
+#   - "https://example.com/cosmos-snapshot.part001.tar.gz"
+#   - "https://example.com/cosmos-snapshot.part002.tar.gz"
+#   - "https://example.com/cosmos-snapshot.part003.tar.gz"
 
 # URL for the binary to download
 binary_url: "https://example.com/cosmos-binary.tar.gz"

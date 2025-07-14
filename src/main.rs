@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::path::PathBuf;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
@@ -32,6 +33,25 @@ mod utils;
 
 use config::Config;
 use toml_modifier::TomlModifier;
+
+/// Download snapshot (single file or multi-part)
+async fn download_snapshot(config: &Config) -> Result<PathBuf> {
+    let urls = config.get_snapshot_urls();
+    if urls.is_empty() {
+        return Err(anyhow::anyhow!("No snapshot URLs configured"));
+    }
+
+    if urls.len() == 1 {
+        download::download_file(&urls[0], &config.downloads_dir, "snapshot")
+            .await
+            .context("Failed to download snapshot")
+    } else {
+        let filename = config.get_snapshot_filename()?;
+        download::download_multipart_snapshot(&urls, &config.downloads_dir, &filename)
+            .await
+            .context("Failed to download multi-part snapshot")
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -71,19 +91,13 @@ async fn main() -> Result<()> {
     // Run binary init
     runner::run_binary_init(&config).context("Failed to initialize binary")?;
 
-    // Handle snapshot
+    // Handle snapshot download
     let snapshot_path = if args.skip_download_snapshot {
-        info!("Skipping snapshot download, using existing snapshot file");
-        let snapshot_filename = config
-            .snapshot_url
-            .split('/')
-            .next_back()
-            .context("Failed to determine filename from snapshot URL")?;
-        config.downloads_dir.join(snapshot_filename)
+        info!("Skipping snapshot download, using existing file");
+        let filename = config.get_snapshot_filename()?;
+        config.downloads_dir.join(filename)
     } else {
-        download::download_file(&config.snapshot_url, &config.downloads_dir, "snapshot")
-            .await
-            .context("Failed to download snapshot")?
+        download_snapshot(&config).await?
     };
 
     // Extract snapshot and run post-snapshot command if configured

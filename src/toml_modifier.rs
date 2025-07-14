@@ -67,7 +67,7 @@ impl TomlModifier {
 
         // Parse existing TOML
         let mut toml_value: TomlValue = toml::from_str(&toml_content)
-            .context(format!("Failed to parse {} content", file_name))?;
+            .context(format!("Failed to parse {file_name} content"))?;
 
         // Convert YAML to TOML-compatible structure and merge
         let yaml_as_toml = Self::yaml_to_toml(yaml_config)?;
@@ -75,7 +75,7 @@ impl TomlModifier {
 
         // Write back to file
         let modified_toml = toml::to_string_pretty(&toml_value)
-            .context(format!("Failed to serialize modified {}", file_name))?;
+            .context(format!("Failed to serialize modified {file_name}"))?;
 
         fs::write(&toml_path, modified_toml).context(format!(
             "Failed to write modified {} to {}",

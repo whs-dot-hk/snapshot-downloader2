@@ -5,7 +5,7 @@ use reqwest::header::{CONTENT_LENGTH, RANGE};
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> Result<PathBuf> {
     let client = reqwest::Client::new();
@@ -73,7 +73,7 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     let mut request = client.get(url);
     if file_size > 0 {
         info!("Resuming {} download from {} bytes", file_type, file_size);
-        request = request.header(RANGE, format!("bytes={}-", file_size));
+        request = request.header(RANGE, format!("bytes={file_size}-"));
     } else {
         info!("Starting {} download", file_type);
     }
@@ -135,7 +135,7 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
         }
     }
 
-    pb.finish_with_message(format!("{} download complete", file_type));
+    pb.finish_with_message(format!("{file_type} download complete"));
     info!(
         "{} download completed successfully: {}",
         file_type,
@@ -143,4 +143,97 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     );
 
     Ok(file_path)
+}
+
+/// Download multiple snapshot parts and concatenate them into a single file
+pub async fn download_multipart_snapshot(
+    urls: &[String],
+    download_dir: &Path,
+    final_filename: &str,
+) -> Result<PathBuf> {
+    let final_path = download_dir.join(final_filename);
+
+    if final_path.exists() {
+        info!(
+            "Multi-part snapshot already exists: {}",
+            final_path.display()
+        );
+        return Ok(final_path);
+    }
+
+    info!("Downloading {} snapshot parts", urls.len());
+
+    // Download all parts
+    let part_paths = download_all_parts(urls, download_dir).await?;
+
+    // Concatenate parts into final file
+    info!("Concatenating parts into final snapshot");
+    concatenate_files(&part_paths, &final_path).await?;
+
+    // Clean up part files
+    cleanup_part_files(&part_paths);
+
+    info!("Multi-part snapshot ready: {}", final_path.display());
+    Ok(final_path)
+}
+
+/// Download all snapshot parts
+async fn download_all_parts(urls: &[String], download_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut part_paths = Vec::with_capacity(urls.len());
+
+    for (i, url) in urls.iter().enumerate() {
+        let part_num = i + 1;
+        let part_path = download_file(url, download_dir, &format!("part {part_num}")).await?;
+        part_paths.push(part_path);
+    }
+
+    Ok(part_paths)
+}
+
+/// Clean up temporary part files
+fn cleanup_part_files(part_paths: &[PathBuf]) {
+    for path in part_paths {
+        if let Err(e) = fs::remove_file(path) {
+            warn!("Failed to remove part file {}: {}", path.display(), e);
+        }
+    }
+}
+
+/// Concatenate multiple files into a single output file
+async fn concatenate_files(input_paths: &[PathBuf], output_path: &Path) -> Result<()> {
+    let mut output_file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(output_path)
+        .with_context(|| format!("Failed to create output file: {}", output_path.display()))?;
+
+    let pb = create_concatenation_progress_bar(input_paths.len());
+
+    for (i, input_path) in input_paths.iter().enumerate() {
+        debug!("Concatenating part {}: {}", i + 1, input_path.display());
+
+        let mut input_file = fs::File::open(input_path)
+            .with_context(|| format!("Failed to open part file: {}", input_path.display()))?;
+
+        std::io::copy(&mut input_file, &mut output_file)
+            .with_context(|| format!("Failed to copy part {} to output", i + 1))?;
+
+        pb.set_position((i + 1) as u64);
+    }
+
+    pb.finish_with_message("Parts concatenated successfully");
+    Ok(())
+}
+
+/// Create a progress bar for file concatenation
+fn create_concatenation_progress_bar(total_parts: usize) -> ProgressBar {
+    let pb = ProgressBar::new(total_parts as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} parts")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    pb
 }

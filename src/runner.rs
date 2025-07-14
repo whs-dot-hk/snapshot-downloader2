@@ -69,7 +69,7 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
     // Print the command for the user to run later
     let binary_abs_path_str = binary_abs_path.to_string_lossy();
     let home_abs_path_str = home_abs_path.to_string_lossy();
-    let command_str = format!("{} start --home {}", binary_abs_path_str, home_abs_path_str);
+    let command_str = format!("{binary_abs_path_str} start --home {home_abs_path_str}");
 
     info!("To start the node later, run the following command:");
     info!("{}", command_str);
@@ -93,7 +93,7 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
 
         std::thread::spawn(move || {
             for line in stdout_reader.lines().map_while(Result::ok) {
-                println!("[STDOUT] {}", line);
+                println!("[STDOUT] {line}");
             }
         });
     }
@@ -105,7 +105,7 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
 
         std::thread::spawn(move || {
             for line in stderr_reader.lines().map_while(Result::ok) {
-                eprintln!("[STDERR] {}", line);
+                eprintln!("[STDERR] {line}");
             }
         });
     }

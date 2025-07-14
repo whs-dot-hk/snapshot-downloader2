@@ -8,19 +8,20 @@ description = "A tool to download and extract Cosmos node snapshots"
 [dependencies]
 anyhow = "1.0.98"
 bytes = "1.10.1"
-clap = { version = "4.5.40", features = ["derive"] }
+clap = { version = "4.5.41", features = ["derive"] }
 dirs = "6.0.0"
 flate2 = "1.1.2"
 futures-util = "0.3.31"
-indicatif = "0.17.11"
+indicatif = "0.18.0"
 lz4 = "1.28.1"
-reqwest = { version = "0.12.20", features = ["stream", "json"] }
+regex = "1.11.1"
+reqwest = { version = "0.12.22", features = ["stream", "json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9"
 tar = "0.4.44"
-tokio = { version = "1.45.1", features = ["full", "signal"] }
+tokio = { version = "1.46.1", features = ["full", "signal"] }
 tokio-util = { version = "0.7.15", features = ["io"] }
-toml = "0.8.23"
+toml = "0.9.2"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 zstd = "0.13.3"

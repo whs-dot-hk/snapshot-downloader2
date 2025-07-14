@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
+    #[serde(default)]
     pub snapshot_url: String,
+    #[serde(default)]
+    pub snapshot_urls: Vec<String>,
     pub binary_url: String,
     pub binary_relative_path: String,
     pub chain_id: String,
@@ -50,5 +53,60 @@ impl Config {
         };
 
         Ok(config)
+    }
+
+    /// Get the list of snapshot URLs to download
+    /// Returns the multi-part URLs if available, otherwise falls back to single URL
+    pub fn get_snapshot_urls(&self) -> Vec<String> {
+        if !self.snapshot_urls.is_empty() {
+            self.snapshot_urls.clone()
+        } else if !self.snapshot_url.is_empty() {
+            vec![self.snapshot_url.clone()]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Get the final snapshot filename
+    pub fn get_snapshot_filename(&self) -> Result<String> {
+        let urls = self.get_snapshot_urls();
+        if urls.is_empty() {
+            return Err(anyhow::anyhow!("No snapshot URLs configured"));
+        }
+
+        if urls.len() == 1 {
+            // Single file - use the original filename
+            Ok(urls[0]
+                .split('/')
+                .next_back()
+                .context("Failed to determine filename from snapshot URL")?
+                .to_string())
+        } else {
+            // Multi-part - derive base filename from first part
+            let first_filename = urls[0]
+                .split('/')
+                .next_back()
+                .context("Failed to determine filename from snapshot URL")?;
+
+            // Remove common part patterns and extensions
+            let base_name = Self::normalize_multipart_filename(first_filename);
+            Ok(format!("{base_name}.tar.gz"))
+        }
+    }
+
+    /// Normalize a multi-part filename by removing part indicators
+    fn normalize_multipart_filename(filename: &str) -> String {
+        use regex::Regex;
+
+        // Remove common part patterns: .part001, .part1, .001, etc.
+        let part_regex = Regex::new(r"\.part\d+|\.part\d+|\.0+\d+").unwrap();
+        let without_parts = part_regex.replace_all(filename, "");
+
+        // Remove extensions
+        without_parts
+            .strip_suffix(".tar.gz")
+            .or_else(|| without_parts.strip_suffix(".tar"))
+            .unwrap_or(&without_parts)
+            .to_string()
     }
 }
