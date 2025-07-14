@@ -96,13 +96,10 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     }
 
     // Set up progress bar now that we know we'll be downloading
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
-            .progress_chars("#>-"),
-    );
-
+    let pb = create_progress_bar(
+        total_size,
+        "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
+    )?;
     pb.set_position(file_size);
 
     // Open file for writing, with append mode if resuming
@@ -208,7 +205,10 @@ async fn concatenate_files(input_paths: &[PathBuf], output_path: &Path) -> Resul
         .open(output_path)
         .with_context(|| format!("Failed to create output file: {}", output_path.display()))?;
 
-    let pb = create_concatenation_progress_bar(input_paths.len());
+    let pb = create_progress_bar(
+        input_paths.len() as u64,
+        "[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} parts",
+    )?;
 
     for (i, input_path) in input_paths.iter().enumerate() {
         debug!("Concatenating part {}: {}", i + 1, input_path.display());
@@ -226,14 +226,14 @@ async fn concatenate_files(input_paths: &[PathBuf], output_path: &Path) -> Resul
     Ok(())
 }
 
-/// Create a progress bar for file concatenation
-fn create_concatenation_progress_bar(total_parts: usize) -> ProgressBar {
-    let pb = ProgressBar::new(total_parts as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} parts")
-            .unwrap()
-            .progress_chars("#>-"),
-    );
-    pb
+/// Create a progress bar with the given template
+fn create_progress_bar(total: u64, template: &str) -> Result<ProgressBar> {
+    let pb = ProgressBar::new(total);
+
+    let style = ProgressStyle::default_bar()
+        .template(template)?
+        .progress_chars("#>-");
+
+    pb.set_style(style);
+    Ok(pb)
 }

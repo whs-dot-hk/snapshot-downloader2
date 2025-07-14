@@ -89,24 +89,26 @@ impl Config {
                 .context("Failed to determine filename from snapshot URL")?;
 
             // Remove common part patterns and extensions
-            let base_name = Self::normalize_multipart_filename(first_filename);
+            let base_name = Self::normalize_multipart_filename(first_filename)?;
             Ok(format!("{base_name}.tar.gz"))
         }
     }
 
     /// Normalize a multi-part filename by removing part indicators
-    fn normalize_multipart_filename(filename: &str) -> String {
+    fn normalize_multipart_filename(filename: &str) -> Result<String> {
         use regex::Regex;
 
         // Remove common part patterns: .part001, .part1, .001, etc.
-        let part_regex = Regex::new(r"\.part\d+|\.part\d+|\.0+\d+").unwrap();
+        let part_regex = Regex::new(r"\.part\d+|\.0+\d+")?;
         let without_parts = part_regex.replace_all(filename, "");
 
         // Remove extensions
-        without_parts
+        let result = without_parts
             .strip_suffix(".tar.gz")
             .or_else(|| without_parts.strip_suffix(".tar"))
             .unwrap_or(&without_parts)
-            .to_string()
+            .to_string();
+
+        Ok(result)
     }
 }
