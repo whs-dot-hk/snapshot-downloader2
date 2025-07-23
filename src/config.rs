@@ -44,6 +44,13 @@ impl Config {
         let mut config: Config =
             serde_yaml::from_str(&content).context("Failed to parse config YAML")?;
 
+        // Validate configuration
+        if !config.snapshot_urls.is_empty() && config.snapshot_filename.is_none() {
+            return Err(anyhow::anyhow!(
+                "snapshot_filename is required when using snapshot_urls (multipart snapshots)"
+            ));
+        }
+
         let user_home_dir = dirs::home_dir().context("Failed to determine user home directory")?;
 
         config.base_dir = user_home_dir.join(".snapshot-downloader");
@@ -84,12 +91,10 @@ impl Config {
                 .context("Failed to determine filename from snapshot URL")?
                 .to_string())
         } else {
-            // Multi-part - snapshot_filename is required
-            self.snapshot_filename.clone().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "snapshot_filename is required when using snapshot_urls (multipart snapshots)"
-                )
-            })
+            // Multi-part - snapshot_filename should exist due to validation
+            self.snapshot_filename.clone().context(
+                "snapshot_filename is required when using snapshot_urls (multipart snapshots)",
+            )
         }
     }
 }
