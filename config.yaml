@@ -10,6 +10,10 @@ snapshot_url: "https://example.com/cosmos-snapshot.tar.gz"
 #   - "https://example.com/cosmos-snapshot.part002.tar.gz"
 #   - "https://example.com/cosmos-snapshot.part003.tar.gz"
 
+# Final filename for multi-part snapshots (REQUIRED when using snapshot_urls)
+# This specifies what the final concatenated file should be called
+# snapshot_filename: "cosmos-snapshot.tar.gz"
+
 # URL for the binary to download
 binary_url: "https://example.com/cosmos-binary.tar.gz"
 

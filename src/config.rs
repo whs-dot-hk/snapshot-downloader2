@@ -10,6 +10,8 @@ pub struct Config {
     pub snapshot_url: String,
     #[serde(default)]
     pub snapshot_urls: Vec<String>,
+    #[serde(default)]
+    pub snapshot_filename: Option<String>,
     pub binary_url: String,
     pub binary_relative_path: String,
     pub chain_id: String,
@@ -82,33 +84,12 @@ impl Config {
                 .context("Failed to determine filename from snapshot URL")?
                 .to_string())
         } else {
-            // Multi-part - derive base filename from first part
-            let first_filename = urls[0]
-                .split('/')
-                .next_back()
-                .context("Failed to determine filename from snapshot URL")?;
-
-            // Remove common part patterns and extensions
-            let base_name = Self::normalize_multipart_filename(first_filename)?;
-            Ok(format!("{base_name}.tar.gz"))
+            // Multi-part - snapshot_filename is required
+            self.snapshot_filename.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "snapshot_filename is required when using snapshot_urls (multipart snapshots)"
+                )
+            })
         }
-    }
-
-    /// Normalize a multi-part filename by removing part indicators
-    fn normalize_multipart_filename(filename: &str) -> Result<String> {
-        use regex::Regex;
-
-        // Remove common part patterns: .part001, .part1, .001, etc.
-        let part_regex = Regex::new(r"\.part\d+|\.0+\d+")?;
-        let without_parts = part_regex.replace_all(filename, "");
-
-        // Remove extensions
-        let result = without_parts
-            .strip_suffix(".tar.gz")
-            .or_else(|| without_parts.strip_suffix(".tar"))
-            .unwrap_or(&without_parts)
-            .to_string();
-
-        Ok(result)
     }
 }
