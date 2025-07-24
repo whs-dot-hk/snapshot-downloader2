@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
 use std::process::Command;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tracing::{debug, info, warn};
 
@@ -101,13 +100,10 @@ pub fn run_binary_start(
         .unwrap_or_else(|| "committed state".to_string());
     let stop_after_post_start = config.stop_after_post_start;
 
-    // Flag to ensure post start command runs only once
-    let post_start_executed = Arc::new(Mutex::new(false));
-
     // Channel to signal when post start pattern is detected and we should stop
     let (shutdown_tx, shutdown_rx) = if stop_after_post_start {
         let (tx, rx) = oneshot::channel();
-        (Some(Arc::new(Mutex::new(Some(tx)))), Some(rx))
+        (Some(tx), Some(rx))
     } else {
         (None, None)
     };
@@ -116,48 +112,30 @@ pub fn run_binary_start(
         let stdout_reader = BufReader::new(stdout);
         let post_start_cmd = post_start_command.clone();
         let pattern = post_start_pattern.clone();
-        let executed_flag = Arc::clone(&post_start_executed);
-        let shutdown_sender = shutdown_tx.clone();
+        let mut shutdown_sender = shutdown_tx;
+        let mut pattern_detected = false;
 
         std::thread::spawn(move || {
             for line in stdout_reader.lines().map_while(Result::ok) {
                 println!("[STDOUT] {line}");
 
-                // Check if we should handle post start pattern detection
-                if line.contains(&pattern) {
-                    let mut executed = executed_flag.lock().unwrap();
-                    if !*executed {
-                        *executed = true;
-                        info!("Detected pattern '{}' in output", pattern);
+                // Check for post-start pattern detection (only once)
+                if !pattern_detected && line.contains(&pattern) {
+                    pattern_detected = true;
+                    info!("Detected pattern '{}' in stdout output", pattern);
 
-                        // Execute post start command if configured
-                        let command_success = if let Some(ref cmd) = post_start_cmd {
-                            info!("Executing post start command");
-                            match execute_post_start_command(cmd) {
-                                Ok(()) => {
-                                    info!("Post start command completed successfully");
-                                    true
-                                }
-                                Err(e) => {
-                                    warn!("Failed to execute post start command: {}", e);
-                                    false
-                                }
-                            }
-                        } else {
-                            info!("No post start command configured, proceeding to shutdown");
-                            true
-                        };
+                    // Execute post start command if configured
+                    let command_success = if let Some(ref cmd) = post_start_cmd {
+                        execute_post_start_command(cmd).is_ok()
+                    } else {
+                        info!("No post start command configured, proceeding to shutdown");
+                        true
+                    };
 
-                        // Signal shutdown if command succeeded (or no command was configured)
-                        if command_success {
-                            if let Some(ref sender_arc) = shutdown_sender {
-                                info!("Signaling shutdown");
-                                if let Ok(mut sender_opt) = sender_arc.lock() {
-                                    if let Some(tx) = sender_opt.take() {
-                                        let _ = tx.send(());
-                                    }
-                                }
-                            }
+                    // Signal shutdown if command succeeded (or no command was configured)
+                    if command_success {
+                        if let Some(tx) = shutdown_sender.take() {
+                            let _ = tx.send(());
                         }
                     }
                 }
@@ -165,87 +143,19 @@ pub fn run_binary_start(
         });
     }
 
-    // Stream stderr
+    // Stream stderr (no pattern detection, just logging)
     if let Some(stderr) = child.stderr.take() {
         let stderr_reader = BufReader::new(stderr);
-        let post_start_cmd = post_start_command;
-        let pattern = post_start_pattern;
-        let executed_flag = Arc::clone(&post_start_executed);
-        let shutdown_sender = shutdown_tx.clone();
 
         std::thread::spawn(move || {
             for line in stderr_reader.lines().map_while(Result::ok) {
                 eprintln!("[STDERR] {line}");
-
-                // Check if we should handle post start pattern detection (also check stderr)
-                if line.contains(&pattern) {
-                    let mut executed = executed_flag.lock().unwrap();
-                    if !*executed {
-                        *executed = true;
-                        info!("Detected pattern '{}' in stderr output", pattern);
-
-                        // Execute post start command if configured
-                        let command_success = if let Some(ref cmd) = post_start_cmd {
-                            info!("Executing post start command");
-                            match execute_post_start_command(cmd) {
-                                Ok(()) => {
-                                    info!("Post start command completed successfully");
-                                    true
-                                }
-                                Err(e) => {
-                                    warn!("Failed to execute post start command: {}", e);
-                                    false
-                                }
-                            }
-                        } else {
-                            info!("No post start command configured, proceeding to shutdown");
-                            true
-                        };
-
-                        // Signal shutdown if command succeeded (or no command was configured)
-                        if command_success {
-                            if let Some(ref sender_arc) = shutdown_sender {
-                                info!("Signaling shutdown");
-                                if let Ok(mut sender_opt) = sender_arc.lock() {
-                                    if let Some(tx) = sender_opt.take() {
-                                        let _ = tx.send(());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         });
     }
 
     // Return the child process handle and optional shutdown receiver
     Ok((child, shutdown_rx))
-}
-
-/// Gracefully terminates the provided child process
-pub fn terminate_process(mut child: std::process::Child) -> Result<()> {
-    info!("Gracefully shutting down binary process...");
-
-    // Send termination signal to the process
-    if let Err(e) = child.kill() {
-        warn!("Failed to send termination signal: {}", e);
-        return Err(anyhow::anyhow!("Failed to terminate process: {}", e));
-    }
-    info!("Termination signal sent to process {}", child.id());
-
-    // Wait for the process to exit
-    info!("Waiting for process to exit...");
-    match child.wait() {
-        Ok(status) => {
-            info!("Process exited with status: {:?}", status);
-            Ok(())
-        }
-        Err(e) => {
-            warn!("Error waiting for process to exit: {}", e);
-            Err(anyhow::anyhow!("Failed to wait for process: {}", e))
-        }
-    }
 }
 
 /// Execute the post start command
