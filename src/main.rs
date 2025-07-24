@@ -225,7 +225,7 @@ async fn main() -> Result<()> {
         let _ = shutdown_tx.send(());
     });
 
-    // Create a separate task that waits for the process to exit and holds the process handle  
+    // Create a separate task that waits for the process to exit and holds the process handle
     let process_wait_task = tokio::task::spawn_blocking(move || {
         let mut binary_process = binary_process;
         let result = binary_process.wait();
@@ -278,7 +278,6 @@ async fn main() -> Result<()> {
             }
         } => {
             info!("Post start command completed, terminating process {} and exiting program", process_id);
-            info!("Exiting program now");
             std::process::exit(0);
         }
         exit_status = exit_rx => {
