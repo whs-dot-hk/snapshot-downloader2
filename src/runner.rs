@@ -104,8 +104,8 @@ pub fn run_binary_start(
     // Flag to ensure post start command runs only once
     let post_start_executed = Arc::new(Mutex::new(false));
 
-    // Channel to signal when post start command completes and we should stop
-    let (shutdown_tx, shutdown_rx) = if stop_after_post_start && post_start_command.is_some() {
+    // Channel to signal when post start pattern is detected and we should stop
+    let (shutdown_tx, shutdown_rx) = if stop_after_post_start {
         let (tx, rx) = oneshot::channel();
         (Some(Arc::new(Mutex::new(Some(tx)))), Some(rx))
     } else {
@@ -123,20 +123,35 @@ pub fn run_binary_start(
             for line in stdout_reader.lines().map_while(Result::ok) {
                 println!("[STDOUT] {line}");
 
-                // Check if we should execute post start command
-                if let Some(ref cmd) = post_start_cmd {
-                    if line.contains(&pattern) {
-                        let mut executed = executed_flag.lock().unwrap();
-                        if !*executed {
-                            *executed = true;
-                            info!(
-                                "Detected pattern '{}' in output, executing post start command",
-                                pattern
-                            );
-                            if let Err(e) = execute_post_start_command(cmd) {
-                                warn!("Failed to execute post start command: {}", e);
-                            } else if let Some(ref sender_arc) = shutdown_sender {
-                                info!("Post start command completed, signaling shutdown");
+                // Check if we should handle post start pattern detection
+                if line.contains(&pattern) {
+                    let mut executed = executed_flag.lock().unwrap();
+                    if !*executed {
+                        *executed = true;
+                        info!("Detected pattern '{}' in output", pattern);
+
+                        // Execute post start command if configured
+                        let command_success = if let Some(ref cmd) = post_start_cmd {
+                            info!("Executing post start command");
+                            match execute_post_start_command(cmd) {
+                                Ok(()) => {
+                                    info!("Post start command completed successfully");
+                                    true
+                                }
+                                Err(e) => {
+                                    warn!("Failed to execute post start command: {}", e);
+                                    false
+                                }
+                            }
+                        } else {
+                            info!("No post start command configured, proceeding to shutdown");
+                            true
+                        };
+
+                        // Signal shutdown if command succeeded (or no command was configured)
+                        if command_success {
+                            if let Some(ref sender_arc) = shutdown_sender {
+                                info!("Signaling shutdown");
                                 if let Ok(mut sender_opt) = sender_arc.lock() {
                                     if let Some(tx) = sender_opt.take() {
                                         let _ = tx.send(());
@@ -162,20 +177,35 @@ pub fn run_binary_start(
             for line in stderr_reader.lines().map_while(Result::ok) {
                 eprintln!("[STDERR] {line}");
 
-                // Check if we should execute post start command (also check stderr)
-                if let Some(ref cmd) = post_start_cmd {
-                    if line.contains(&pattern) {
-                        let mut executed = executed_flag.lock().unwrap();
-                        if !*executed {
-                            *executed = true;
-                            info!(
-                                "Detected pattern '{}' in output, executing post start command",
-                                pattern
-                            );
-                            if let Err(e) = execute_post_start_command(cmd) {
-                                warn!("Failed to execute post start command: {}", e);
-                            } else if let Some(ref sender_arc) = shutdown_sender {
-                                info!("Post start command completed, signaling shutdown");
+                // Check if we should handle post start pattern detection (also check stderr)
+                if line.contains(&pattern) {
+                    let mut executed = executed_flag.lock().unwrap();
+                    if !*executed {
+                        *executed = true;
+                        info!("Detected pattern '{}' in stderr output", pattern);
+
+                        // Execute post start command if configured
+                        let command_success = if let Some(ref cmd) = post_start_cmd {
+                            info!("Executing post start command");
+                            match execute_post_start_command(cmd) {
+                                Ok(()) => {
+                                    info!("Post start command completed successfully");
+                                    true
+                                }
+                                Err(e) => {
+                                    warn!("Failed to execute post start command: {}", e);
+                                    false
+                                }
+                            }
+                        } else {
+                            info!("No post start command configured, proceeding to shutdown");
+                            true
+                        };
+
+                        // Signal shutdown if command succeeded (or no command was configured)
+                        if command_success {
+                            if let Some(ref sender_arc) = shutdown_sender {
+                                info!("Signaling shutdown");
                                 if let Ok(mut sender_opt) = sender_arc.lock() {
                                     if let Some(tx) = sender_opt.take() {
                                         let _ = tx.send(());
