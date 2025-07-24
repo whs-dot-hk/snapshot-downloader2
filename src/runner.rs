@@ -156,6 +156,7 @@ pub fn run_binary_start(
         let post_start_cmd = post_start_command;
         let pattern = post_start_pattern;
         let executed_flag = Arc::clone(&post_start_executed);
+        let shutdown_sender = shutdown_tx.clone();
 
         std::thread::spawn(move || {
             for line in stderr_reader.lines().map_while(Result::ok) {
@@ -173,8 +174,13 @@ pub fn run_binary_start(
                             );
                             if let Err(e) = execute_post_start_command(cmd) {
                                 warn!("Failed to execute post start command: {}", e);
-                            } else if stop_after_post_start {
-                                info!("Post start command completed, cosmos node will be stopped by main program");
+                            } else if let Some(ref sender_arc) = shutdown_sender {
+                                info!("Post start command completed, signaling shutdown");
+                                if let Ok(mut sender_opt) = sender_arc.lock() {
+                                    if let Some(tx) = sender_opt.take() {
+                                        let _ = tx.send(());
+                                    }
+                                }
                             }
                         }
                     }
