@@ -198,7 +198,7 @@ async fn main() -> Result<()> {
     }
 
     // Start the binary and get the process handle
-    let (mut binary_process, post_start_shutdown_rx) =
+    let (binary_process, post_start_shutdown_rx) =
         runner::run_binary_start(&config).context("Failed to start binary")?;
 
     // Store the process ID for later use
@@ -225,33 +225,112 @@ async fn main() -> Result<()> {
         let _ = shutdown_tx.send(());
     });
 
-    // Create a separate task that just waits for the process to exit
-    let _process_wait_task = tokio::task::spawn_blocking(move || {
+    // Create a separate task that waits for the process to exit and holds the process handle
+    let process_wait_task = tokio::task::spawn_blocking(move || {
         let result = binary_process.wait();
         let _ = exit_tx.send(result);
+        binary_process
     });
 
     // Block the main thread until we receive a shutdown signal, post start shutdown, OR the process exits on its own
     tokio::select! {
         _ = shutdown_rx => {
-            info!("Ctrl+C received, terminating process {} and exiting", process_id);
-            
-            // Use system kill command to terminate the process
-            let kill_result = std::process::Command::new("kill")
-                .arg("-TERM")
-                .arg(process_id.to_string())
-                .output();
-            
-            match kill_result {
-                Ok(output) => {
-                    if output.status.success() {
-                        info!("Successfully sent SIGTERM to cosmos process");
-                    } else {
-                        warn!("Failed to send SIGTERM: {}", String::from_utf8_lossy(&output.stderr));
+            info!("Shutdown signal received, terminating process {}", process_id);
+
+            // Abort the waiting task to get the process handle back
+            process_wait_task.abort();
+
+            // Try to get the process handle back from the aborted task
+            match process_wait_task.await {
+                Ok((_, mut binary_process)) => {
+                    // Try to terminate the process gracefully first
+                    info!("Attempting graceful termination of process {}", process_id);
+                    match binary_process.kill() {
+                        Ok(_) => {
+                            info!("Successfully sent kill signal to process {}", process_id);
+                            // Wait a bit for graceful shutdown
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                tokio::task::spawn_blocking(move || binary_process.wait())
+                            ).await {
+                                Ok(Ok(Ok(status))) => {
+                                    info!("Process exited with status: {:?}", status);
+                                }
+                                Ok(Ok(Err(e))) => {
+                                    warn!("Error waiting for process: {}", e);
+                                }
+                                Ok(Err(_)) => {
+                                    warn!("Task was cancelled while waiting for process");
+                                }
+                                Err(_) => {
+                                    warn!("Process did not exit within timeout, forcing termination");
+                                    // Fallback to system kill command
+                                    let kill_result = std::process::Command::new("kill")
+                                        .arg("-KILL")
+                                        .arg(process_id.to_string())
+                                        .output();
+                                    
+                                    match kill_result {
+                                        Ok(output) => {
+                                            if output.status.success() {
+                                                info!("Successfully sent SIGKILL to process");
+                                            } else {
+                                                warn!("Failed to send SIGKILL: {}", String::from_utf8_lossy(&output.stderr));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!("Failed to execute kill command: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to kill process directly: {}", e);
+                            // Fallback to system kill command
+                            info!("Falling back to system kill command");
+                            let kill_result = std::process::Command::new("kill")
+                                .arg("-TERM")
+                                .arg(process_id.to_string())
+                                .output();
+                            
+                            match kill_result {
+                                Ok(output) => {
+                                    if output.status.success() {
+                                        info!("Successfully sent SIGTERM to process");
+                                    } else {
+                                        warn!("Failed to send SIGTERM: {}", String::from_utf8_lossy(&output.stderr));
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Failed to execute kill command: {}", e);
+                                }
+                            }
+                        }
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to execute kill command: {}", e);
+                    warn!("Could not get process handle back for termination: {}", e);
+                    // Fallback to system kill command
+                    info!("Ctrl+C received, terminating process {} and exiting", process_id);
+                    
+                    let kill_result = std::process::Command::new("kill")
+                        .arg("-TERM")
+                        .arg(process_id.to_string())
+                        .output();
+                    
+                    match kill_result {
+                        Ok(output) => {
+                            if output.status.success() {
+                                info!("Successfully sent SIGTERM to cosmos process");
+                            } else {
+                                warn!("Failed to send SIGTERM: {}", String::from_utf8_lossy(&output.stderr));
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to execute kill command: {}", e);
+                        }
+                    }
                 }
             }
         }
