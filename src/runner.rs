@@ -1,5 +1,8 @@
 use anyhow::{Context, Result};
+use std::io::{BufRead, BufReader};
 use std::process::Command;
+use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
@@ -87,25 +90,73 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
 
     info!("Binary process started, streaming logs...");
 
+    // Get the post start command and pattern from config
+    let post_start_command = config.post_start_command.clone();
+    let post_start_pattern = config
+        .post_start_pattern
+        .clone()
+        .unwrap_or_else(|| "committed state".to_string());
+
+    // Flag to ensure post start command runs only once
+    let post_start_executed = Arc::new(Mutex::new(false));
+
     if let Some(stdout) = child.stdout.take() {
-        use std::io::{BufRead, BufReader};
         let stdout_reader = BufReader::new(stdout);
+        let post_start_cmd = post_start_command.clone();
+        let pattern = post_start_pattern.clone();
+        let executed_flag = Arc::clone(&post_start_executed);
 
         std::thread::spawn(move || {
             for line in stdout_reader.lines().map_while(Result::ok) {
                 println!("[STDOUT] {line}");
+
+                // Check if we should execute post start command
+                if let Some(ref cmd) = post_start_cmd {
+                    if line.contains(&pattern) {
+                        let mut executed = executed_flag.lock().unwrap();
+                        if !*executed {
+                            *executed = true;
+                            info!(
+                                "Detected pattern '{}' in output, executing post start command",
+                                pattern
+                            );
+                            if let Err(e) = execute_post_start_command(cmd) {
+                                warn!("Failed to execute post start command: {}", e);
+                            }
+                        }
+                    }
+                }
             }
         });
     }
 
     // Stream stderr
     if let Some(stderr) = child.stderr.take() {
-        use std::io::{BufRead, BufReader};
         let stderr_reader = BufReader::new(stderr);
+        let post_start_cmd = post_start_command;
+        let pattern = post_start_pattern;
+        let executed_flag = Arc::clone(&post_start_executed);
 
         std::thread::spawn(move || {
             for line in stderr_reader.lines().map_while(Result::ok) {
                 eprintln!("[STDERR] {line}");
+
+                // Check if we should execute post start command (also check stderr)
+                if let Some(ref cmd) = post_start_cmd {
+                    if line.contains(&pattern) {
+                        let mut executed = executed_flag.lock().unwrap();
+                        if !*executed {
+                            *executed = true;
+                            info!(
+                                "Detected pattern '{}' in output, executing post start command",
+                                pattern
+                            );
+                            if let Err(e) = execute_post_start_command(cmd) {
+                                warn!("Failed to execute post start command: {}", e);
+                            }
+                        }
+                    }
+                }
             }
         });
     }
@@ -136,5 +187,54 @@ pub fn terminate_process(mut child: std::process::Child) -> Result<()> {
             warn!("Error waiting for process to exit: {}", e);
             Err(anyhow::anyhow!("Failed to wait for process: {}", e))
         }
+    }
+}
+
+/// Execute the post start command
+pub fn execute_post_start_command(command: &str) -> Result<()> {
+    info!("Executing post-start command: {}", command);
+
+    let mut child = Command::new("sh")
+        .args(["-c", command])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to execute post-start command")?;
+
+    // Stream stdout in real-time
+    if let Some(stdout) = child.stdout.take() {
+        let stdout_reader = BufReader::new(stdout);
+        std::thread::spawn(move || {
+            for line in stdout_reader.lines().map_while(Result::ok) {
+                info!("[Post-start stdout] {}", line);
+            }
+        });
+    }
+
+    // Stream stderr in real-time
+    if let Some(stderr) = child.stderr.take() {
+        let stderr_reader = BufReader::new(stderr);
+        std::thread::spawn(move || {
+            for line in stderr_reader.lines().map_while(Result::ok) {
+                warn!("[Post-start stderr] {}", line);
+            }
+        });
+    }
+
+    // Wait for the process to complete
+    let status = child
+        .wait()
+        .context("Failed to wait for post-start command")?;
+
+    if status.success() {
+        info!("Post-start command executed successfully");
+        Ok(())
+    } else {
+        let exit_code = status.code().unwrap_or(-1);
+        warn!("Post-start command failed with exit code: {}", exit_code);
+        Err(anyhow::anyhow!(
+            "Post-start command failed with exit code: {}",
+            exit_code
+        ))
     }
 }

@@ -39,6 +39,15 @@ moniker: "my-cosmos-node"
 # This will only run if a snapshot is successfully extracted
 post_snapshot_command: "echo 'Snapshot extraction completed'"
 
+# Command to execute after cosmos node starts and specific pattern is detected (optional)
+# This will run after the node starts and the post_start_pattern is found in the output
+# post_start_command: "echo 'Node started and pattern detected'"
+
+# Pattern to search for in cosmos node output (optional)
+# When this pattern is found in the node output, the post_start_command will be executed
+# Can be any message you want to wait for after node startup
+# post_start_pattern: "committed state"
+
 # Configuration overrides for app.toml
 # These values will be merged with the existing app.toml file
 app_yaml:
