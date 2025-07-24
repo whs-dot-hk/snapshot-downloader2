@@ -27,6 +27,8 @@ pub struct Config {
     #[serde(default)]
     pub post_start_pattern: Option<String>,
     #[serde(default)]
+    pub stop_after_post_start: bool,
+    #[serde(default)]
     pub chain_home_dir: Option<String>,
     #[serde(default)]
     pub addrbook_url: Option<String>,

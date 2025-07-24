@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
@@ -57,7 +58,9 @@ pub fn run_binary_init(config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
+pub fn run_binary_start(
+    config: &Config,
+) -> Result<(std::process::Child, Option<oneshot::Receiver<()>>)> {
     info!("Starting binary...");
 
     let binary_path = config.workspace_dir.join(&config.binary_relative_path);
@@ -96,15 +99,25 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
         .post_start_pattern
         .clone()
         .unwrap_or_else(|| "committed state".to_string());
+    let stop_after_post_start = config.stop_after_post_start;
 
     // Flag to ensure post start command runs only once
     let post_start_executed = Arc::new(Mutex::new(false));
+
+    // Channel to signal when post start command completes and we should stop
+    let (shutdown_tx, shutdown_rx) = if stop_after_post_start && post_start_command.is_some() {
+        let (tx, rx) = oneshot::channel();
+        (Some(Arc::new(Mutex::new(Some(tx)))), Some(rx))
+    } else {
+        (None, None)
+    };
 
     if let Some(stdout) = child.stdout.take() {
         let stdout_reader = BufReader::new(stdout);
         let post_start_cmd = post_start_command.clone();
         let pattern = post_start_pattern.clone();
         let executed_flag = Arc::clone(&post_start_executed);
+        let shutdown_sender = shutdown_tx.clone();
 
         std::thread::spawn(move || {
             for line in stdout_reader.lines().map_while(Result::ok) {
@@ -122,6 +135,13 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
                             );
                             if let Err(e) = execute_post_start_command(cmd) {
                                 warn!("Failed to execute post start command: {}", e);
+                            } else if let Some(ref sender_arc) = shutdown_sender {
+                                info!("Post start command completed, signaling shutdown");
+                                if let Ok(mut sender_opt) = sender_arc.lock() {
+                                    if let Some(tx) = sender_opt.take() {
+                                        let _ = tx.send(());
+                                    }
+                                }
                             }
                         }
                     }
@@ -153,6 +173,8 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
                             );
                             if let Err(e) = execute_post_start_command(cmd) {
                                 warn!("Failed to execute post start command: {}", e);
+                            } else if stop_after_post_start {
+                                info!("Post start command completed, cosmos node will be stopped by main program");
                             }
                         }
                     }
@@ -161,8 +183,8 @@ pub fn run_binary_start(config: &Config) -> Result<std::process::Child> {
         });
     }
 
-    // Return the child process handle instead of waiting for it to complete
-    Ok(child)
+    // Return the child process handle and optional shutdown receiver
+    Ok((child, shutdown_rx))
 }
 
 /// Gracefully terminates the provided child process

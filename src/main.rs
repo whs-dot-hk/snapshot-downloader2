@@ -198,7 +198,8 @@ async fn main() -> Result<()> {
     }
 
     // Start the binary and get the process handle
-    let mut binary_process = runner::run_binary_start(&config).context("Failed to start binary")?;
+    let (mut binary_process, post_start_shutdown_rx) =
+        runner::run_binary_start(&config).context("Failed to start binary")?;
 
     // Store the process ID for later use
     let process_id = binary_process.id();
@@ -232,10 +233,35 @@ async fn main() -> Result<()> {
         binary_process // Return ownership of the process back
     });
 
-    // Block the main thread until we receive a shutdown signal OR the process exits on its own
+    // Block the main thread until we receive a shutdown signal, post start shutdown, OR the process exits on its own
     tokio::select! {
         _ = shutdown_rx => {
             info!("Shutdown signal received, terminating process {}", process_id);
+            // Abort the waiting task to get the process handle back
+            process_wait_task.abort();
+
+            // Try to get the process handle back from the aborted task
+            match process_wait_task.await {
+                Ok(binary_process) => {
+                    // Call our graceful termination function
+                    if let Err(e) = runner::terminate_process(binary_process) {
+                        warn!("Error during graceful shutdown: {}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!("Could not get binary process handle back for termination: {}", e);
+                }
+            }
+        }
+        _ = async {
+            if let Some(rx) = post_start_shutdown_rx {
+                rx.await.ok();
+            } else {
+                // If no post start shutdown is configured, wait forever
+                std::future::pending::<()>().await;
+            }
+        } => {
+            info!("Post start command completed, terminating process {} and exiting program", process_id);
             // Abort the waiting task to get the process handle back
             process_wait_task.abort();
 
