@@ -84,6 +84,13 @@ async fn main() -> Result<()> {
         )
         .context("Failed to extract binary")?;
         info!("Binary download and extraction complete.");
+
+        // Execute post-download command if configured
+        if let Some(ref cmd) = config.post_download_command {
+            if let Err(e) = runner::execute_post_download_command(cmd) {
+                warn!("Post-download command failed after binary download: {}", e);
+            }
+        }
     } else {
         info!("Skipping binary download and extraction");
     }
@@ -97,7 +104,19 @@ async fn main() -> Result<()> {
         let filename = config.get_snapshot_filename()?;
         config.downloads_dir.join(filename)
     } else {
-        download_snapshot(&config).await?
+        let path = download_snapshot(&config).await?;
+
+        // Execute post-download command if configured
+        if let Some(ref cmd) = config.post_download_command {
+            if let Err(e) = runner::execute_post_download_command(cmd) {
+                warn!(
+                    "Post-download command failed after snapshot download: {}",
+                    e
+                );
+            }
+        }
+
+        path
     };
 
     // Extract snapshot and run post-snapshot command if configured
