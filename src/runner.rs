@@ -132,11 +132,15 @@ pub fn run_binary_start(
                         true
                     };
 
-                    // Signal shutdown if command succeeded (or no command was configured)
+                    // Always shutdown - whether command succeeded or failed
                     if command_success {
-                        if let Some(tx) = shutdown_sender.take() {
-                            let _ = tx.send(());
-                        }
+                        info!("Post-start command succeeded. Shutting down binary process.");
+                    } else {
+                        warn!("Post-start command failed. Shutting down binary process.");
+                    }
+
+                    if let Some(tx) = shutdown_sender.take() {
+                        let _ = tx.send(());
                     }
                 }
             }
