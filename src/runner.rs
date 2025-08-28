@@ -169,30 +169,37 @@ pub fn execute_post_start_command(command: &str) -> Result<()> {
         .spawn()
         .context("Failed to execute post-start command")?;
 
+    let mut handles = Vec::new();
+
     // Stream stdout in real-time
     if let Some(stdout) = child.stdout.take() {
         let stdout_reader = BufReader::new(stdout);
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             for line in stdout_reader.lines().map_while(Result::ok) {
                 info!("[Post-start stdout] {}", line);
             }
         });
+        handles.push(handle);
     }
 
     // Stream stderr in real-time
     if let Some(stderr) = child.stderr.take() {
         let stderr_reader = BufReader::new(stderr);
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             for line in stderr_reader.lines().map_while(Result::ok) {
                 warn!("[Post-start stderr] {}", line);
             }
         });
+        handles.push(handle);
     }
 
-    // Wait for the process to complete
     let status = child
         .wait()
         .context("Failed to wait for post-start command")?;
+
+    for handle in handles {
+        let _ = handle.join();
+    }
 
     if status.success() {
         info!("Post-start command executed successfully");
