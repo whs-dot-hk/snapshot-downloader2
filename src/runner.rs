@@ -162,16 +162,16 @@ pub fn run_binary_start(
     Ok((child, shutdown_rx))
 }
 
-/// Execute the post download command
-pub fn execute_post_download_command(command: &str) -> Result<()> {
-    info!("Executing post-download command: {}", command);
+/// Execute the post snapshot download command
+pub fn execute_post_snapshot_download_command(command: &str) -> Result<()> {
+    info!("Executing post-snapshot-download command: {}", command);
 
     let mut child = Command::new("sh")
         .args(["-c", command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to execute post-download command")?;
+        .context("Failed to execute post-snapshot-download command")?;
 
     let mut handles = Vec::new();
 
@@ -180,7 +180,7 @@ pub fn execute_post_download_command(command: &str) -> Result<()> {
         let stdout_reader = BufReader::new(stdout);
         let handle = std::thread::spawn(move || {
             for line in stdout_reader.lines().map_while(Result::ok) {
-                info!("[Post-download stdout] {}", line);
+                info!("[Post-snapshot-download stdout] {}", line);
             }
         });
         handles.push(handle);
@@ -191,7 +191,7 @@ pub fn execute_post_download_command(command: &str) -> Result<()> {
         let stderr_reader = BufReader::new(stderr);
         let handle = std::thread::spawn(move || {
             for line in stderr_reader.lines().map_while(Result::ok) {
-                warn!("[Post-download stderr] {}", line);
+                warn!("[Post-snapshot-download stderr] {}", line);
             }
         });
         handles.push(handle);
@@ -199,20 +199,23 @@ pub fn execute_post_download_command(command: &str) -> Result<()> {
 
     let status = child
         .wait()
-        .context("Failed to wait for post-download command")?;
+        .context("Failed to wait for post-snapshot-download command")?;
 
     for handle in handles {
         let _ = handle.join();
     }
 
     if status.success() {
-        info!("Post-download command executed successfully");
+        info!("Post-snapshot-download command executed successfully");
         Ok(())
     } else {
         let exit_code = status.code().unwrap_or(-1);
-        warn!("Post-download command failed with exit code: {}", exit_code);
+        warn!(
+            "Post-snapshot-download command failed with exit code: {}",
+            exit_code
+        );
         Err(anyhow::anyhow!(
-            "Post-download command failed with exit code: {}",
+            "Post-snapshot-download command failed with exit code: {}",
             exit_code
         ))
     }

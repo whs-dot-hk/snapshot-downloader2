@@ -108,21 +108,21 @@ pub fn extract_snapshot(
     extract_archive(snapshot_path, home_dir)?;
 
     if let Some(cmd) = post_command {
-        execute_post_snapshot_command(cmd)?;
+        execute_post_snapshot_extract_command(cmd)?;
     }
 
     Ok(())
 }
 
-fn execute_post_snapshot_command(command: &str) -> Result<()> {
-    info!("Executing post-snapshot command: {}", command);
+fn execute_post_snapshot_extract_command(command: &str) -> Result<()> {
+    info!("Executing post-snapshot-extract command: {}", command);
 
     let mut child = Command::new("sh")
         .args(["-c", command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to execute post-snapshot command")?;
+        .context("Failed to execute post-snapshot-extract command")?;
 
     // Stream stdout in real-time
     if let Some(stdout) = child.stdout.take() {
@@ -147,16 +147,19 @@ fn execute_post_snapshot_command(command: &str) -> Result<()> {
     // Wait for the process to complete
     let status = child
         .wait()
-        .context("Failed to wait for post-snapshot command")?;
+        .context("Failed to wait for post-snapshot-extract command")?;
 
     if status.success() {
-        info!("Post-snapshot command executed successfully");
+        info!("Post-snapshot-extract command executed successfully");
         Ok(())
     } else {
         let exit_code = status.code().unwrap_or(-1);
-        warn!("Post-snapshot command failed with exit code: {}", exit_code);
+        warn!(
+            "Post-snapshot-extract command failed with exit code: {}",
+            exit_code
+        );
         Err(anyhow::anyhow!(
-            "Post-snapshot command failed with exit code: {}",
+            "Post-snapshot-extract command failed with exit code: {}",
             exit_code
         ))
     }

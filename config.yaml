@@ -35,13 +35,13 @@ moniker: "my-cosmos-node"
 # If specified, this file will be downloaded and placed in the config directory
 # addrbook_url: "https://example.com/addrbook.json"
 
-# Command to execute after any download completes (optional)
-# This will run after binary download and after snapshot download
-# post_download_command: "echo 'Download completed'"
+# Command to execute after snapshot download completes (optional)
+# This will run only after snapshot download, not after binary download
+# post_snapshot_download_command: "echo 'Snapshot download completed'"
 
 # Command to execute after snapshot extraction (optional)
 # This will only run if a snapshot is successfully extracted
-post_snapshot_command: "echo 'Snapshot extraction completed'"
+post_snapshot_extract_command: "echo 'Snapshot extraction completed'"
 
 # Command to execute after cosmos node starts and specific pattern is detected (optional)
 # This will run after the node starts and the post_start_pattern is found in the output

@@ -21,9 +21,9 @@ pub struct Config {
     #[serde(default)]
     pub config_yaml: Option<YamlValue>,
     #[serde(default)]
-    pub post_download_command: Option<String>,
+    pub post_snapshot_download_command: Option<String>,
     #[serde(default)]
-    pub post_snapshot_command: Option<String>,
+    pub post_snapshot_extract_command: Option<String>,
     #[serde(default)]
     pub post_start_command: Option<String>,
     #[serde(default)]

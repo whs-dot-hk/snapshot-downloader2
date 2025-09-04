@@ -8,7 +8,7 @@ description = "A tool to download and extract Cosmos node snapshots"
 [dependencies]
 anyhow = "1.0.99"
 bytes = "1.10.1"
-clap = { version = "4.5.46", features = ["derive"] }
+clap = { version = "4.5.47", features = ["derive"] }
 dirs = "6.0.0"
 flate2 = "1.1.2"
 futures-util = "0.3.31"
@@ -23,5 +23,5 @@ tokio = { version = "1.47.1", features = ["full", "signal"] }
 tokio-util = { version = "0.7.16", features = ["io"] }
 toml = "0.9.5"
 tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
+tracing-subscriber = "0.3.20"
 zstd = "0.13.3"
