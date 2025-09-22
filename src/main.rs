@@ -42,14 +42,24 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
     }
 
     if urls.len() == 1 {
-        download::download_file(&urls[0], &config.downloads_dir, "snapshot")
-            .await
-            .context("Failed to download snapshot")
+        download::download_file(
+            &urls[0],
+            &config.downloads_dir,
+            "snapshot",
+            &config.download_retry,
+        )
+        .await
+        .context("Failed to download snapshot")
     } else {
         let filename = config.get_snapshot_filename()?;
-        download::download_multipart_snapshot(&urls, &config.downloads_dir, &filename)
-            .await
-            .context("Failed to download multi-part snapshot")
+        download::download_multipart_snapshot(
+            &urls,
+            &config.downloads_dir,
+            &filename,
+            &config.download_retry,
+        )
+        .await
+        .context("Failed to download multi-part snapshot")
     }
 }
 
@@ -71,10 +81,14 @@ async fn main() -> Result<()> {
     if !args.skip_binary_download {
         info!("Downloading and extracting binary...");
         // Download binary
-        let binary_path =
-            download::download_file(&config.binary_url, &config.downloads_dir, "binary")
-                .await
-                .context("Failed to download binary")?;
+        let binary_path = download::download_file(
+            &config.binary_url,
+            &config.downloads_dir,
+            "binary",
+            &config.download_retry,
+        )
+        .await
+        .context("Failed to download binary")?;
 
         // Extract binary
         extract::extract_binary(
@@ -163,10 +177,14 @@ async fn main() -> Result<()> {
             info!("Skipping address book download");
         } else {
             info!("Downloading addrbook from {}", addrbook_url);
-            let downloaded_addrbook_path =
-                download::download_file(addrbook_url, &config.downloads_dir, "addrbook")
-                    .await
-                    .context("Failed to download addrbook")?;
+            let downloaded_addrbook_path = download::download_file(
+                addrbook_url,
+                &config.downloads_dir,
+                "addrbook",
+                &config.download_retry,
+            )
+            .await
+            .context("Failed to download addrbook")?;
 
             let target_addrbook_dir = config.home_dir.join("config");
             let target_addrbook_path = target_addrbook_dir.join("addrbook.json"); // Assuming standard name

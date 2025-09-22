@@ -35,6 +35,20 @@ moniker: "my-cosmos-node"
 # If specified, this file will be downloaded and placed in the config directory
 # addrbook_url: "https://example.com/addrbook.json"
 
+# Download retry configuration (optional)
+# These settings control how downloads are retried when they fail or are interrupted
+download_retry:
+  # Maximum number of retry attempts (default: 5)
+  max_retries: 5
+  # Initial delay between retries in seconds (default: 1)
+  initial_delay_secs: 1
+  # Maximum delay between retries in seconds (default: 300 = 5 minutes)
+  max_delay_secs: 300
+  # Exponential backoff multiplier (default: 2.0)
+  backoff_multiplier: 2.0
+  # Request timeout in seconds (default: 30)
+  request_timeout_secs: 30
+
 # Command to execute after snapshot download completes (optional)
 # This will run only after snapshot download, not after binary download
 # post_snapshot_download_command: "echo 'Snapshot download completed'"

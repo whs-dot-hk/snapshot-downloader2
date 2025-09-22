@@ -5,10 +5,53 @@ use reqwest::header::{CONTENT_LENGTH, RANGE};
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use tokio::time::sleep;
 use tracing::{debug, error, info, trace, warn};
 
-pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> Result<PathBuf> {
-    let client = reqwest::Client::new();
+use crate::config::DownloadRetryConfig;
+
+pub async fn download_file(
+    url: &str,
+    download_dir: &Path,
+    file_type: &str,
+    retry_config: &DownloadRetryConfig,
+) -> Result<PathBuf> {
+    for attempt in 0..=retry_config.max_retries {
+        match download_file_attempt(url, download_dir, file_type, retry_config, attempt).await {
+            Ok(path) => return Ok(path),
+            Err(e) if attempt == retry_config.max_retries => {
+                error!("Final attempt failed for {} download: {}", file_type, e);
+                return Err(e);
+            }
+            Err(e) => {
+                let delay = retry_config.calculate_delay(attempt);
+                warn!(
+                    "Attempt {} failed for {} download: {}. Retrying in {:?}...",
+                    attempt + 1,
+                    file_type,
+                    e,
+                    delay
+                );
+                sleep(delay).await;
+            }
+        }
+    }
+
+    unreachable!("Loop should have returned or errored")
+}
+
+async fn download_file_attempt(
+    url: &str,
+    download_dir: &Path,
+    file_type: &str,
+    retry_config: &DownloadRetryConfig,
+    attempt: u32,
+) -> Result<PathBuf> {
+    // Create HTTP client with timeout
+    let client = reqwest::Client::builder()
+        .timeout(retry_config.request_timeout())
+        .build()
+        .context("Failed to create HTTP client")?;
 
     // Create filename from URL
     let file_name = url
@@ -17,21 +60,38 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
         .context("Failed to determine filename from URL")?;
 
     let file_path = download_dir.join(file_name);
-    debug!("Download path set to: {:?}", file_path);
+
+    if attempt == 0 {
+        debug!("Download path set to: {:?}", file_path);
+    } else {
+        debug!("Retry attempt {} for: {:?}", attempt + 1, file_path);
+    }
 
     // Check if file already exists (for resuming)
     let file_size = if file_path.exists() {
         let size = file_path.metadata()?.len();
-        debug!("Existing file found with size: {} bytes", size);
+        if attempt == 0 {
+            debug!("Existing file found with size: {} bytes", size);
+        }
         size
     } else {
-        debug!("No existing file found, starting fresh download");
+        if attempt == 0 {
+            debug!("No existing file found, starting fresh download");
+        }
         0
     };
 
     // Get total file size by requesting just the first byte
-    trace!("Requesting file metadata from server");
-    let resp = client.get(url).header(RANGE, "bytes=0-0").send().await?;
+    trace!(
+        "Requesting file metadata from server (attempt {})",
+        attempt + 1
+    );
+    let resp = client
+        .get(url)
+        .header(RANGE, "bytes=0-0")
+        .send()
+        .await
+        .context("Failed to get file metadata")?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         error!("File not found at URL: {}", url);
@@ -61,7 +121,9 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
             .unwrap_or(0)
     };
 
-    debug!("Total file size: {} bytes", total_size);
+    if attempt == 0 {
+        debug!("Total file size: {} bytes", total_size);
+    }
 
     // If file is already complete, return early
     if file_size == total_size && total_size > 0 {
@@ -72,13 +134,18 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     // Prepare request with range header for resuming
     let mut request = client.get(url);
     if file_size > 0 {
-        info!("Resuming {} download from {} bytes", file_type, file_size);
+        if attempt == 0 {
+            info!("Resuming {} download from {} bytes", file_type, file_size);
+        }
         request = request.header(RANGE, format!("bytes={file_size}-"));
-    } else {
+    } else if attempt == 0 {
         info!("Starting {} download", file_type);
     }
 
-    let response = request.send().await?;
+    let response = request
+        .send()
+        .await
+        .context("Failed to start download request")?;
 
     // Handle potential 416 Range Not Satisfiable error (file already complete)
     if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
@@ -95,11 +162,19 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
         ));
     }
 
-    // Set up progress bar now that we know we'll be downloading
-    let pb = create_progress_bar(
-        total_size,
-        "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-    )?;
+    // Set up progress bar
+    let pb = if attempt == 0 {
+        create_progress_bar(
+            total_size,
+            "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
+        )?
+    } else {
+        // For retries, show retry attempt in progress bar
+        create_progress_bar(
+            total_size,
+            &format!("[Retry {}] [{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{bytes}}/{{total_bytes}} ({{eta}})", attempt + 1),
+        )?
+    };
     pb.set_position(file_size);
 
     // Open file for writing, with append mode if resuming
@@ -107,7 +182,8 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
         .create(true)
         .write(true)
         .append(file_size > 0)
-        .open(&file_path)?;
+        .open(&file_path)
+        .context("Failed to open file for writing")?;
 
     // If not resuming, ensure we start from the beginning
     if file_size == 0 {
@@ -117,18 +193,24 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
     // Download the file
     let mut stream = response.bytes_stream();
     let mut downloaded = file_size;
-    trace!("Beginning download stream");
+    trace!("Beginning download stream (attempt {})", attempt + 1);
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk)?;
+        let chunk = chunk.context("Failed to read chunk from stream")?;
+        file.write_all(&chunk)
+            .context("Failed to write chunk to file")?;
 
         downloaded += chunk.len() as u64;
         pb.set_position(downloaded);
 
         // Log progress at reasonable intervals (every 10% or so)
-        if downloaded % (total_size / 10).max(1) < (chunk.len() as u64) {
-            trace!("Download progress: {}/{} bytes", downloaded, total_size);
+        if total_size > 0 && downloaded % (total_size / 10).max(1) < (chunk.len() as u64) {
+            trace!(
+                "Download progress: {}/{} bytes (attempt {})",
+                downloaded,
+                total_size,
+                attempt + 1
+            );
         }
     }
 
@@ -138,7 +220,6 @@ pub async fn download_file(url: &str, download_dir: &Path, file_type: &str) -> R
         file_type,
         file_path.display()
     );
-
     Ok(file_path)
 }
 
@@ -147,6 +228,7 @@ pub async fn download_multipart_snapshot(
     urls: &[String],
     download_dir: &Path,
     final_filename: &str,
+    retry_config: &DownloadRetryConfig,
 ) -> Result<PathBuf> {
     let final_path = download_dir.join(final_filename);
 
@@ -161,7 +243,7 @@ pub async fn download_multipart_snapshot(
     info!("Downloading {} snapshot parts", urls.len());
 
     // Download all parts
-    let part_paths = download_all_parts(urls, download_dir).await?;
+    let part_paths = download_all_parts(urls, download_dir, retry_config).await?;
 
     // Concatenate parts into final file
     info!("Concatenating parts into final snapshot");
@@ -175,12 +257,17 @@ pub async fn download_multipart_snapshot(
 }
 
 /// Download all snapshot parts
-async fn download_all_parts(urls: &[String], download_dir: &Path) -> Result<Vec<PathBuf>> {
+async fn download_all_parts(
+    urls: &[String],
+    download_dir: &Path,
+    retry_config: &DownloadRetryConfig,
+) -> Result<Vec<PathBuf>> {
     let mut part_paths = Vec::with_capacity(urls.len());
 
     for (i, url) in urls.iter().enumerate() {
         let part_num = i + 1;
-        let part_path = download_file(url, download_dir, &format!("part {part_num}")).await?;
+        let part_path =
+            download_file(url, download_dir, &format!("part {part_num}"), retry_config).await?;
         part_paths.push(part_path);
     }
 

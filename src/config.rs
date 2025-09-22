@@ -3,6 +3,68 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DownloadRetryConfig {
+    /// Maximum number of retry attempts (default: 5)
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+    /// Initial delay between retries in seconds (default: 1)
+    #[serde(default = "default_initial_delay")]
+    pub initial_delay_secs: u64,
+    /// Maximum delay between retries in seconds (default: 300 = 5 minutes)
+    #[serde(default = "default_max_delay")]
+    pub max_delay_secs: u64,
+    /// Exponential backoff multiplier (default: 2.0)
+    #[serde(default = "default_backoff_multiplier")]
+    pub backoff_multiplier: f64,
+    /// Request timeout in seconds (default: 30)
+    #[serde(default = "default_request_timeout")]
+    pub request_timeout_secs: u64,
+}
+
+fn default_max_retries() -> u32 {
+    5
+}
+fn default_initial_delay() -> u64 {
+    1
+}
+fn default_max_delay() -> u64 {
+    300
+}
+fn default_backoff_multiplier() -> f64 {
+    2.0
+}
+fn default_request_timeout() -> u64 {
+    30
+}
+
+impl Default for DownloadRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: default_max_retries(),
+            initial_delay_secs: default_initial_delay(),
+            max_delay_secs: default_max_delay(),
+            backoff_multiplier: default_backoff_multiplier(),
+            request_timeout_secs: default_request_timeout(),
+        }
+    }
+}
+
+impl DownloadRetryConfig {
+    /// Calculate delay for a given retry attempt
+    pub fn calculate_delay(&self, attempt: u32) -> Duration {
+        let delay_secs =
+            (self.initial_delay_secs as f64 * self.backoff_multiplier.powi(attempt as i32)) as u64;
+        Duration::from_secs(delay_secs.min(self.max_delay_secs))
+    }
+
+    /// Get request timeout as Duration
+    pub fn request_timeout(&self) -> Duration {
+        Duration::from_secs(self.request_timeout_secs)
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -34,6 +96,8 @@ pub struct Config {
     pub chain_home_dir: Option<String>,
     #[serde(default)]
     pub addrbook_url: Option<String>,
+    #[serde(default)]
+    pub download_retry: DownloadRetryConfig,
     #[serde(skip)]
     pub base_dir: PathBuf,
     #[serde(skip)]
@@ -68,6 +132,11 @@ impl Config {
             Some(custom_home) => PathBuf::from(custom_home),
             None => config.workspace_dir.join("home"),
         };
+
+        // Set default retry configuration if not provided
+        if config.download_retry.max_retries == 0 {
+            config.download_retry = DownloadRetryConfig::default();
+        }
 
         Ok(config)
     }
