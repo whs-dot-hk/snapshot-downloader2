@@ -17,7 +17,7 @@ pub async fn download_file(
     retry_config: &DownloadRetryConfig,
 ) -> Result<PathBuf> {
     for attempt in 0..=retry_config.max_retries {
-        match download_file_attempt(url, download_dir, file_type, retry_config, attempt).await {
+        match download_file_attempt(url, download_dir, file_type, attempt).await {
             Ok(path) => return Ok(path),
             Err(e) if attempt == retry_config.max_retries => {
                 error!("Final attempt failed for {} download: {}", file_type, e);
@@ -44,12 +44,9 @@ async fn download_file_attempt(
     url: &str,
     download_dir: &Path,
     file_type: &str,
-    retry_config: &DownloadRetryConfig,
     attempt: u32,
 ) -> Result<PathBuf> {
-    // Create HTTP client with timeout
     let client = reqwest::Client::builder()
-        .timeout(retry_config.request_timeout())
         .build()
         .context("Failed to create HTTP client")?;
 

@@ -46,8 +46,6 @@ download_retry:
   max_delay_secs: 300
   # Exponential backoff multiplier (default: 2.0)
   backoff_multiplier: 2.0
-  # Request timeout in seconds (default: 30)
-  request_timeout_secs: 30
 
 # Command to execute after snapshot download completes (optional)
 # This will run only after snapshot download, not after binary download

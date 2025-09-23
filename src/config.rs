@@ -19,9 +19,6 @@ pub struct DownloadRetryConfig {
     /// Exponential backoff multiplier (default: 2.0)
     #[serde(default = "default_backoff_multiplier")]
     pub backoff_multiplier: f64,
-    /// Request timeout in seconds (default: 30)
-    #[serde(default = "default_request_timeout")]
-    pub request_timeout_secs: u64,
 }
 
 fn default_max_retries() -> u32 {
@@ -36,9 +33,6 @@ fn default_max_delay() -> u64 {
 fn default_backoff_multiplier() -> f64 {
     2.0
 }
-fn default_request_timeout() -> u64 {
-    30
-}
 
 impl Default for DownloadRetryConfig {
     fn default() -> Self {
@@ -47,7 +41,6 @@ impl Default for DownloadRetryConfig {
             initial_delay_secs: default_initial_delay(),
             max_delay_secs: default_max_delay(),
             backoff_multiplier: default_backoff_multiplier(),
-            request_timeout_secs: default_request_timeout(),
         }
     }
 }
@@ -58,11 +51,6 @@ impl DownloadRetryConfig {
         let delay_secs =
             (self.initial_delay_secs as f64 * self.backoff_multiplier.powi(attempt as i32)) as u64;
         Duration::from_secs(delay_secs.min(self.max_delay_secs))
-    }
-
-    /// Get request timeout as Duration
-    pub fn request_timeout(&self) -> Duration {
-        Duration::from_secs(self.request_timeout_secs)
     }
 }
 
