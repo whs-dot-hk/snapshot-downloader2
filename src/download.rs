@@ -161,16 +161,15 @@ async fn download_file_attempt(
         ));
     }
 
-    // Use shared download logic
-    download_stream_to_file(
+    // Convert HTTP response to AsyncRead and use unified download logic
+    let reader = tokio_util::io::StreamReader::new(
         response
             .bytes_stream()
-            .map(|result| result.map_err(|e| e.into())),
-        &file_path,
-        file_size,
-        total_size,
-        attempt,
-        file_type,
+            .map(|result| result.map_err(std::io::Error::other)),
+    );
+
+    download_async_read_to_file(
+        reader, &file_path, file_size, total_size, attempt, file_type,
     )
     .await?;
 
@@ -332,9 +331,9 @@ fn finish_download(pb: ProgressBar, file_type: &str, file_path: &Path) {
     );
 }
 
-/// Common download logic for writing stream to file with progress tracking
-async fn download_stream_to_file<S>(
-    mut stream: S,
+/// Unified download logic using AsyncRead trait - works for both HTTP and S3
+async fn download_async_read_to_file<R>(
+    mut reader: R,
     file_path: &Path,
     existing_size: u64,
     total_size: u64,
@@ -342,7 +341,7 @@ async fn download_stream_to_file<S>(
     file_type: &str,
 ) -> Result<()>
 where
-    S: futures_util::Stream<Item = Result<bytes::Bytes, anyhow::Error>> + Unpin,
+    R: tokio::io::AsyncRead + Unpin,
 {
     // Set up progress bar
     let pb = create_progress_bar_for_attempt(total_size, attempt)?;
@@ -358,12 +357,27 @@ where
         .context("Failed to open file for writing")?;
 
     let mut downloaded = existing_size;
-    trace!("Beginning download stream (attempt {})", attempt + 1);
+    let mut buffer = vec![0u8; 256 * 1024]; // 256KB buffer for better performance
+    trace!("Beginning download (attempt {})", attempt + 1);
 
-    while let Some(bytes) = stream.next().await {
-        let bytes = bytes.context("Failed to read bytes from stream")?;
-        write_chunk_with_progress(&mut file, &bytes, &mut downloaded, total_size, &pb, attempt)
-            .await?;
+    loop {
+        let bytes_read = tokio::io::AsyncReadExt::read(&mut reader, &mut buffer)
+            .await
+            .context("Failed to read from stream")?;
+
+        if bytes_read == 0 {
+            break; // EOF
+        }
+
+        write_chunk_with_progress(
+            &mut file,
+            &buffer[..bytes_read],
+            &mut downloaded,
+            total_size,
+            &pb,
+            attempt,
+        )
+        .await?;
     }
 
     file.flush().await.context("Failed to flush file")?;
@@ -551,9 +565,11 @@ async fn download_s3_file_attempt(
             .context("Failed to start S3 download")?
     };
 
-    // Download S3 ByteStream to file
-    download_s3_bytestream_to_file(
-        get_output.body,
+    // Convert S3 ByteStream to AsyncRead and use unified download logic
+    let reader = get_output.body.into_async_read();
+
+    download_async_read_to_file(
+        reader,
         &file_path,
         existing_size,
         total_size,
@@ -563,62 +579,4 @@ async fn download_s3_file_attempt(
     .await?;
 
     Ok(file_path)
-}
-
-/// Download S3 ByteStream to file with progress tracking
-async fn download_s3_bytestream_to_file(
-    byte_stream: aws_sdk_s3::primitives::ByteStream,
-    file_path: &Path,
-    existing_size: u64,
-    total_size: u64,
-    attempt: u32,
-    file_type: &str,
-) -> Result<()> {
-    // Set up progress bar
-    let pb = create_progress_bar_for_attempt(total_size, attempt)?;
-    pb.set_position(existing_size);
-
-    // Open file for writing
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(existing_size > 0)
-        .open(file_path)
-        .await
-        .context("Failed to open file for writing")?;
-
-    let mut downloaded = existing_size;
-    trace!("Beginning S3 download stream (attempt {})", attempt + 1);
-
-    // Convert ByteStream to async read and read in chunks
-    let mut reader = byte_stream.into_async_read();
-    let mut buffer = vec![0u8; 8192]; // 8KB buffer
-
-    loop {
-        let bytes_read = tokio::io::AsyncReadExt::read(&mut reader, &mut buffer)
-            .await
-            .context("Failed to read from S3 stream")?;
-
-        if bytes_read == 0 {
-            break; // EOF
-        }
-
-        // Use shared helper for writing and progress tracking
-        write_chunk_with_progress(
-            &mut file,
-            &buffer[..bytes_read],
-            &mut downloaded,
-            total_size,
-            &pb,
-            attempt,
-        )
-        .await?;
-    }
-
-    file.flush().await.context("Failed to flush file")?;
-    drop(file);
-
-    // Use shared helper for completion
-    finish_download(pb, file_type, file_path);
-    Ok(())
 }
