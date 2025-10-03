@@ -294,6 +294,44 @@ fn create_progress_bar_for_attempt(total: u64, attempt: u32) -> Result<ProgressB
     }
 }
 
+/// Helper to write data to file and update progress
+async fn write_chunk_with_progress(
+    file: &mut tokio::fs::File,
+    chunk: &[u8],
+    downloaded: &mut u64,
+    total_size: u64,
+    pb: &ProgressBar,
+    attempt: u32,
+) -> Result<()> {
+    file.write_all(chunk)
+        .await
+        .context("Failed to write bytes to file")?;
+
+    *downloaded += chunk.len() as u64;
+    pb.set_position(*downloaded);
+
+    // Log progress at reasonable intervals
+    if total_size > 0 && *downloaded % (total_size / 10).max(1) < (chunk.len() as u64) {
+        trace!(
+            "Download progress: {}/{} bytes (attempt {})",
+            *downloaded,
+            total_size,
+            attempt + 1
+        );
+    }
+    Ok(())
+}
+
+/// Finish download and log completion
+fn finish_download(pb: ProgressBar, file_type: &str, file_path: &Path) {
+    pb.finish_with_message(format!("{} download complete", file_type));
+    info!(
+        "{} download completed successfully: {}",
+        file_type,
+        file_path.display()
+    );
+}
+
 /// Common download logic for writing stream to file with progress tracking
 async fn download_stream_to_file<S>(
     mut stream: S,
@@ -324,33 +362,14 @@ where
 
     while let Some(bytes) = stream.next().await {
         let bytes = bytes.context("Failed to read bytes from stream")?;
-        file.write_all(&bytes)
-            .await
-            .context("Failed to write bytes to file")?;
-
-        downloaded += bytes.len() as u64;
-        pb.set_position(downloaded);
-
-        // Log progress at reasonable intervals
-        if total_size > 0 && downloaded % (total_size / 10).max(1) < (bytes.len() as u64) {
-            trace!(
-                "Download progress: {}/{} bytes (attempt {})",
-                downloaded,
-                total_size,
-                attempt + 1
-            );
-        }
+        write_chunk_with_progress(&mut file, &bytes, &mut downloaded, total_size, &pb, attempt)
+            .await?;
     }
 
     file.flush().await.context("Failed to flush file")?;
     drop(file);
 
-    pb.finish_with_message(format!("{} download complete", file_type));
-    info!(
-        "{} download completed successfully: {}",
-        file_type,
-        file_path.display()
-    );
+    finish_download(pb, file_type, file_path);
     Ok(())
 }
 
@@ -584,32 +603,22 @@ async fn download_s3_bytestream_to_file(
             break; // EOF
         }
 
-        file.write_all(&buffer[..bytes_read])
-            .await
-            .context("Failed to write bytes to file")?;
-
-        downloaded += bytes_read as u64;
-        pb.set_position(downloaded);
-
-        // Log progress at reasonable intervals
-        if total_size > 0 && downloaded % (total_size / 10).max(1) < (bytes_read as u64) {
-            trace!(
-                "Download progress: {}/{} bytes (attempt {})",
-                downloaded,
-                total_size,
-                attempt + 1
-            );
-        }
+        // Use shared helper for writing and progress tracking
+        write_chunk_with_progress(
+            &mut file,
+            &buffer[..bytes_read],
+            &mut downloaded,
+            total_size,
+            &pb,
+            attempt,
+        )
+        .await?;
     }
 
     file.flush().await.context("Failed to flush file")?;
     drop(file);
 
-    pb.finish_with_message(format!("{} download complete", file_type));
-    info!(
-        "{} download completed successfully: {}",
-        file_type,
-        file_path.display()
-    );
+    // Use shared helper for completion
+    finish_download(pb, file_type, file_path);
     Ok(())
 }
