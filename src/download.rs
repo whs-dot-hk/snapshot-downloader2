@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::Client as S3Client;
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::header::{CONTENT_LENGTH, RANGE};
 use std::fs;
-use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::config::DownloadRetryConfig;
+use crate::config::{DownloadRetryConfig, S3Config};
 
 pub async fn download_file(
     url: &str,
@@ -159,64 +161,19 @@ async fn download_file_attempt(
         ));
     }
 
-    // Set up progress bar
-    let pb = if attempt == 0 {
-        create_progress_bar(
-            total_size,
-            "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-        )?
-    } else {
-        // For retries, show retry attempt in progress bar
-        create_progress_bar(
-            total_size,
-            &format!("[Retry {}] [{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{bytes}}/{{total_bytes}} ({{eta}})", attempt + 1),
-        )?
-    };
-    pb.set_position(file_size);
-
-    // Open file for writing, with append mode if resuming
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(file_size > 0)
-        .open(&file_path)
-        .context("Failed to open file for writing")?;
-
-    // If not resuming, ensure we start from the beginning
-    if file_size == 0 {
-        file.seek(SeekFrom::Start(0))?;
-    }
-
-    // Download the file
-    let mut stream = response.bytes_stream();
-    let mut downloaded = file_size;
-    trace!("Beginning download stream (attempt {})", attempt + 1);
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.context("Failed to read chunk from stream")?;
-        file.write_all(&chunk)
-            .context("Failed to write chunk to file")?;
-
-        downloaded += chunk.len() as u64;
-        pb.set_position(downloaded);
-
-        // Log progress at reasonable intervals (every 10% or so)
-        if total_size > 0 && downloaded % (total_size / 10).max(1) < (chunk.len() as u64) {
-            trace!(
-                "Download progress: {}/{} bytes (attempt {})",
-                downloaded,
-                total_size,
-                attempt + 1
-            );
-        }
-    }
-
-    pb.finish_with_message(format!("{file_type} download complete"));
-    info!(
-        "{} download completed successfully: {}",
+    // Use shared download logic
+    download_stream_to_file(
+        response
+            .bytes_stream()
+            .map(|result| result.map_err(|e| e.into())),
+        &file_path,
+        file_size,
+        total_size,
+        attempt,
         file_type,
-        file_path.display()
-    );
+    )
+    .await?;
+
     Ok(file_path)
 }
 
@@ -320,4 +277,339 @@ fn create_progress_bar(total: u64, template: &str) -> Result<ProgressBar> {
 
     pb.set_style(style);
     Ok(pb)
+}
+
+/// Create a progress bar for a specific attempt (handles retry formatting)
+fn create_progress_bar_for_attempt(total: u64, attempt: u32) -> Result<ProgressBar> {
+    if attempt == 0 {
+        create_progress_bar(
+            total,
+            "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
+        )
+    } else {
+        create_progress_bar(
+            total,
+            &format!("[Retry {}] [{{elapsed_precise}}] [{{bar:40.cyan/blue}}] {{bytes}}/{{total_bytes}} ({{eta}})", attempt + 1),
+        )
+    }
+}
+
+/// Common download logic for writing stream to file with progress tracking
+async fn download_stream_to_file<S>(
+    mut stream: S,
+    file_path: &Path,
+    existing_size: u64,
+    total_size: u64,
+    attempt: u32,
+    file_type: &str,
+) -> Result<()>
+where
+    S: futures_util::Stream<Item = Result<bytes::Bytes, anyhow::Error>> + Unpin,
+{
+    // Set up progress bar
+    let pb = create_progress_bar_for_attempt(total_size, attempt)?;
+    pb.set_position(existing_size);
+
+    // Open file for writing
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(existing_size > 0)
+        .open(file_path)
+        .await
+        .context("Failed to open file for writing")?;
+
+    let mut downloaded = existing_size;
+    trace!("Beginning download stream (attempt {})", attempt + 1);
+
+    while let Some(bytes) = stream.next().await {
+        let bytes = bytes.context("Failed to read bytes from stream")?;
+        file.write_all(&bytes)
+            .await
+            .context("Failed to write bytes to file")?;
+
+        downloaded += bytes.len() as u64;
+        pb.set_position(downloaded);
+
+        // Log progress at reasonable intervals
+        if total_size > 0 && downloaded % (total_size / 10).max(1) < (bytes.len() as u64) {
+            trace!(
+                "Download progress: {}/{} bytes (attempt {})",
+                downloaded,
+                total_size,
+                attempt + 1
+            );
+        }
+    }
+
+    file.flush().await.context("Failed to flush file")?;
+    drop(file);
+
+    pb.finish_with_message(format!("{} download complete", file_type));
+    info!(
+        "{} download completed successfully: {}",
+        file_type,
+        file_path.display()
+    );
+    Ok(())
+}
+
+/// Check existing file size and log appropriately
+fn check_existing_file(file_path: &Path, attempt: u32) -> Result<u64> {
+    let existing_size = if file_path.exists() {
+        let size = file_path.metadata()?.len();
+        if attempt == 0 {
+            debug!("Existing file found with size: {} bytes", size);
+        }
+        size
+    } else {
+        if attempt == 0 {
+            debug!("No existing file found, starting fresh download");
+        }
+        0
+    };
+    Ok(existing_size)
+}
+
+/// Parse S3 URL into bucket and key
+/// Supported formats: s3://bucket/key or s3://bucket/path/to/key
+fn parse_s3_url(url: &str) -> Result<(String, String)> {
+    if !url.starts_with("s3://") {
+        return Err(anyhow::anyhow!("Invalid S3 URL format: {}", url));
+    }
+
+    let path = &url[5..]; // Remove "s3://" prefix
+    let parts: Vec<&str> = path.splitn(2, '/').collect();
+
+    if parts.len() != 2 {
+        return Err(anyhow::anyhow!(
+            "Invalid S3 URL format. Expected s3://bucket/key, got: {}",
+            url
+        ));
+    }
+
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
+/// Check if a URL is an S3 URL
+pub fn is_s3_url(url: &str) -> bool {
+    url.starts_with("s3://")
+}
+
+/// Create an S3 client from configuration
+/// Uses AWS default credentials chain (environment variables, AWS config files, IAM roles, etc.)
+async fn create_s3_client(s3_config: Option<&S3Config>) -> Result<S3Client> {
+    let mut config_loader = aws_config::defaults(BehaviorVersion::latest());
+
+    if let Some(s3_cfg) = s3_config {
+        // Set region if provided
+        if let Some(region) = &s3_cfg.region {
+            config_loader = config_loader.region(aws_config::Region::new(region.clone()));
+        }
+    }
+
+    let config = config_loader.load().await;
+    Ok(S3Client::new(&config))
+}
+
+/// Download a file from S3
+pub async fn download_s3_file(
+    url: &str,
+    download_dir: &Path,
+    file_type: &str,
+    retry_config: &DownloadRetryConfig,
+    s3_config: Option<&S3Config>,
+) -> Result<PathBuf> {
+    for attempt in 0..=retry_config.max_retries {
+        match download_s3_file_attempt(url, download_dir, file_type, attempt, s3_config).await {
+            Ok(path) => return Ok(path),
+            Err(e) if attempt == retry_config.max_retries => {
+                error!("Final attempt failed for {} S3 download: {}", file_type, e);
+                return Err(e);
+            }
+            Err(e) => {
+                let delay = retry_config.calculate_delay(attempt);
+                warn!(
+                    "Attempt {} failed for {} S3 download: {}. Retrying in {:?}...",
+                    attempt + 1,
+                    file_type,
+                    e,
+                    delay
+                );
+                sleep(delay).await;
+            }
+        }
+    }
+
+    unreachable!("Loop should have returned or errored")
+}
+
+async fn download_s3_file_attempt(
+    url: &str,
+    download_dir: &Path,
+    file_type: &str,
+    attempt: u32,
+    s3_config: Option<&S3Config>,
+) -> Result<PathBuf> {
+    // Parse S3 URL
+    let (bucket, key) = parse_s3_url(url)?;
+
+    if attempt == 0 {
+        info!(
+            "Downloading {} from S3: bucket={}, key={}",
+            file_type, bucket, key
+        );
+    } else {
+        debug!("Retry attempt {} for S3 download: {}", attempt + 1, url);
+    }
+
+    // Create S3 client
+    let client = create_s3_client(s3_config).await?;
+
+    // Extract filename from key
+    let file_name = key
+        .split('/')
+        .next_back()
+        .context("Failed to determine filename from S3 key")?;
+
+    let file_path = download_dir.join(file_name);
+
+    if attempt == 0 {
+        debug!("Download path set to: {:?}", file_path);
+    }
+
+    // Check if file already exists
+    let existing_size = check_existing_file(&file_path, attempt)?;
+
+    // Get object metadata to check size
+    let head_output = client
+        .head_object()
+        .bucket(&bucket)
+        .key(&key)
+        .send()
+        .await
+        .context("Failed to get S3 object metadata")?;
+
+    let total_size = head_output.content_length().unwrap_or(0) as u64;
+
+    if attempt == 0 {
+        debug!("Total file size: {} bytes", total_size);
+    }
+
+    // If file is already complete, return early
+    if existing_size == total_size && total_size > 0 {
+        info!("{} is already downloaded completely", file_type);
+        return Ok(file_path);
+    }
+
+    // Download the object
+    let get_output = if existing_size > 0 && existing_size < total_size {
+        if attempt == 0 {
+            info!(
+                "Resuming {} download from {} bytes",
+                file_type, existing_size
+            );
+        }
+        // Resume download using range
+        client
+            .get_object()
+            .bucket(&bucket)
+            .key(&key)
+            .range(format!("bytes={}-", existing_size))
+            .send()
+            .await
+            .context("Failed to start S3 download with range")?
+    } else {
+        if attempt == 0 {
+            info!("Starting {} download from S3", file_type);
+        }
+        client
+            .get_object()
+            .bucket(&bucket)
+            .key(&key)
+            .send()
+            .await
+            .context("Failed to start S3 download")?
+    };
+
+    // Download S3 ByteStream to file
+    download_s3_bytestream_to_file(
+        get_output.body,
+        &file_path,
+        existing_size,
+        total_size,
+        attempt,
+        file_type,
+    )
+    .await?;
+
+    Ok(file_path)
+}
+
+/// Download S3 ByteStream to file with progress tracking
+async fn download_s3_bytestream_to_file(
+    byte_stream: aws_sdk_s3::primitives::ByteStream,
+    file_path: &Path,
+    existing_size: u64,
+    total_size: u64,
+    attempt: u32,
+    file_type: &str,
+) -> Result<()> {
+    // Set up progress bar
+    let pb = create_progress_bar_for_attempt(total_size, attempt)?;
+    pb.set_position(existing_size);
+
+    // Open file for writing
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(existing_size > 0)
+        .open(file_path)
+        .await
+        .context("Failed to open file for writing")?;
+
+    let mut downloaded = existing_size;
+    trace!("Beginning S3 download stream (attempt {})", attempt + 1);
+
+    // Convert ByteStream to async read and read in chunks
+    let mut reader = byte_stream.into_async_read();
+    let mut buffer = vec![0u8; 8192]; // 8KB buffer
+
+    loop {
+        let bytes_read = tokio::io::AsyncReadExt::read(&mut reader, &mut buffer)
+            .await
+            .context("Failed to read from S3 stream")?;
+
+        if bytes_read == 0 {
+            break; // EOF
+        }
+
+        file.write_all(&buffer[..bytes_read])
+            .await
+            .context("Failed to write bytes to file")?;
+
+        downloaded += bytes_read as u64;
+        pb.set_position(downloaded);
+
+        // Log progress at reasonable intervals
+        if total_size > 0 && downloaded % (total_size / 10).max(1) < (bytes_read as u64) {
+            trace!(
+                "Download progress: {}/{} bytes (attempt {})",
+                downloaded,
+                total_size,
+                attempt + 1
+            );
+        }
+    }
+
+    file.flush().await.context("Failed to flush file")?;
+    drop(file);
+
+    pb.finish_with_message(format!("{} download complete", file_type));
+    info!(
+        "{} download completed successfully: {}",
+        file_type,
+        file_path.display()
+    );
+    Ok(())
 }

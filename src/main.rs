@@ -42,14 +42,27 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
     }
 
     if urls.len() == 1 {
-        download::download_file(
-            &urls[0],
-            &config.downloads_dir,
-            "snapshot",
-            &config.download_retry,
-        )
-        .await
-        .context("Failed to download snapshot")
+        let url = &urls[0];
+        if download::is_s3_url(url) {
+            download::download_s3_file(
+                url,
+                &config.downloads_dir,
+                "snapshot",
+                &config.download_retry,
+                config.s3.as_ref(),
+            )
+            .await
+            .context("Failed to download snapshot from S3")
+        } else {
+            download::download_file(
+                url,
+                &config.downloads_dir,
+                "snapshot",
+                &config.download_retry,
+            )
+            .await
+            .context("Failed to download snapshot")
+        }
     } else {
         let filename = config.get_snapshot_filename()?;
         download::download_multipart_snapshot(
@@ -81,14 +94,26 @@ async fn main() -> Result<()> {
     if !args.skip_binary_download {
         info!("Downloading and extracting binary...");
         // Download binary
-        let binary_path = download::download_file(
-            &config.binary_url,
-            &config.downloads_dir,
-            "binary",
-            &config.download_retry,
-        )
-        .await
-        .context("Failed to download binary")?;
+        let binary_path = if download::is_s3_url(&config.binary_url) {
+            download::download_s3_file(
+                &config.binary_url,
+                &config.downloads_dir,
+                "binary",
+                &config.download_retry,
+                config.s3.as_ref(),
+            )
+            .await
+            .context("Failed to download binary from S3")?
+        } else {
+            download::download_file(
+                &config.binary_url,
+                &config.downloads_dir,
+                "binary",
+                &config.download_retry,
+            )
+            .await
+            .context("Failed to download binary")?
+        };
 
         // Extract binary
         extract::extract_binary(
@@ -177,14 +202,26 @@ async fn main() -> Result<()> {
             info!("Skipping address book download");
         } else {
             info!("Downloading addrbook from {}", addrbook_url);
-            let downloaded_addrbook_path = download::download_file(
-                addrbook_url,
-                &config.downloads_dir,
-                "addrbook",
-                &config.download_retry,
-            )
-            .await
-            .context("Failed to download addrbook")?;
+            let downloaded_addrbook_path = if download::is_s3_url(addrbook_url) {
+                download::download_s3_file(
+                    addrbook_url,
+                    &config.downloads_dir,
+                    "addrbook",
+                    &config.download_retry,
+                    config.s3.as_ref(),
+                )
+                .await
+                .context("Failed to download addrbook from S3")?
+            } else {
+                download::download_file(
+                    addrbook_url,
+                    &config.downloads_dir,
+                    "addrbook",
+                    &config.download_retry,
+                )
+                .await
+                .context("Failed to download addrbook")?
+            };
 
             let target_addrbook_dir = config.home_dir.join("config");
             let target_addrbook_path = target_addrbook_dir.join("addrbook.json"); // Assuming standard name

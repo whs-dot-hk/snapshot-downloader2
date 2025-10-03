@@ -7,6 +7,8 @@ description = "A tool to download and extract Cosmos node snapshots"
 
 [dependencies]
 anyhow = "1.0.100"
+aws-config = "1.8.7"
+aws-sdk-s3 = "1.107.0"
 bytes = "1.10.1"
 clap = { version = "4.5.48", features = ["derive"] }
 dirs = "6.0.0"
@@ -14,9 +16,9 @@ flate2 = "1.1.2"
 futures-util = "0.3.31"
 indicatif = "0.18.0"
 lz4 = "1.28.1"
-regex = "1.11.2"
+regex = "1.11.3"
 reqwest = { version = "0.12.23", features = ["stream", "json"] }
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9"
 tar = "0.4.44"
 tokio = { version = "1.47.1", features = ["full", "signal"] }

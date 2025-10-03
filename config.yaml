@@ -1,7 +1,10 @@
 # Snapshot Downloader Configuration
 
 # URL for the snapshot to download (for single file snapshots)
+# Supports HTTP/HTTPS URLs and S3 URLs (s3://bucket/path/to/file)
 snapshot_url: "https://example.com/cosmos-snapshot.tar.gz"
+# S3 example:
+# snapshot_url: "s3://my-bucket/snapshots/cosmos-snapshot.tar.gz"
 
 # URLs for multi-part snapshots (alternative to snapshot_url)
 # If snapshot_urls is provided, it will be used instead of snapshot_url
@@ -15,7 +18,10 @@ snapshot_url: "https://example.com/cosmos-snapshot.tar.gz"
 # snapshot_filename: "cosmos-snapshot.tar.gz"
 
 # URL for the binary to download
+# Supports HTTP/HTTPS URLs and S3 URLs (s3://bucket/path/to/file)
 binary_url: "https://example.com/cosmos-binary.tar.gz"
+# S3 example:
+# binary_url: "s3://my-bucket/binaries/cosmos-binary.tar.gz"
 
 # Relative path to the binary within the workspace directory
 # This is used to locate the binary after extraction
@@ -33,7 +39,19 @@ moniker: "my-cosmos-node"
 
 # URL for the addrbook.json file (optional)
 # If specified, this file will be downloaded and placed in the config directory
+# Supports HTTP/HTTPS URLs and S3 URLs (s3://bucket/path/to/file)
 # addrbook_url: "https://example.com/addrbook.json"
+# S3 example:
+# addrbook_url: "s3://my-bucket/config/addrbook.json"
+
+# S3 configuration (optional)
+# AWS credentials are obtained from the default credential chain:
+# - Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
+# - AWS credentials file (~/.aws/credentials)
+# - IAM role for EC2 instances or ECS tasks
+# s3:
+#   # AWS region (optional, e.g., "us-east-1")
+#   region: "us-east-1"
 
 # Download retry configuration (optional)
 # These settings control how downloads are retried when they fail or are interrupted

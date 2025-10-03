@@ -54,6 +54,12 @@ impl DownloadRetryConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct S3Config {
+    /// AWS region (e.g., "us-east-1")
+    pub region: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
@@ -86,6 +92,8 @@ pub struct Config {
     pub addrbook_url: Option<String>,
     #[serde(default)]
     pub download_retry: DownloadRetryConfig,
+    #[serde(default)]
+    pub s3: Option<S3Config>,
     #[serde(skip)]
     pub base_dir: PathBuf,
     #[serde(skip)]
