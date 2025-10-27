@@ -73,6 +73,10 @@ download_retry:
 # This will only run if a snapshot is successfully extracted
 post_snapshot_extract_command: "echo 'Snapshot extraction completed'"
 
+# Command to execute before starting the cosmos node (optional)
+# This will run immediately before the binary start command
+# pre_start_command: "echo 'About to start the node'"
+
 # Command to execute after cosmos node starts and specific pattern is detected (optional)
 # This will run after the node starts and the post_start_pattern is found in the output
 # post_start_command: "echo 'Node started and pattern detected'"

@@ -264,6 +264,13 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Execute pre-start command if configured
+    if let Some(ref cmd) = config.pre_start_command {
+        if let Err(e) = runner::execute_pre_start_command(cmd) {
+            warn!("Pre-start command failed before binary start: {}", e);
+        }
+    }
+
     // Start the binary and get the process handle
     let (binary_process, post_start_shutdown_rx) =
         runner::run_binary_start(&config).context("Failed to start binary")?;

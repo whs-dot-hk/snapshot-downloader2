@@ -221,6 +221,62 @@ pub fn execute_post_snapshot_download_command(command: &str) -> Result<()> {
     }
 }
 
+/// Execute the pre start command
+pub fn execute_pre_start_command(command: &str) -> Result<()> {
+    info!("Executing pre-start command: {}", command);
+
+    let mut child = Command::new("sh")
+        .args(["-c", command])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to execute pre-start command")?;
+
+    let mut handles = Vec::new();
+
+    // Stream stdout in real-time
+    if let Some(stdout) = child.stdout.take() {
+        let stdout_reader = BufReader::new(stdout);
+        let handle = std::thread::spawn(move || {
+            for line in stdout_reader.lines().map_while(Result::ok) {
+                info!("[Pre-start stdout] {}", line);
+            }
+        });
+        handles.push(handle);
+    }
+
+    // Stream stderr in real-time
+    if let Some(stderr) = child.stderr.take() {
+        let stderr_reader = BufReader::new(stderr);
+        let handle = std::thread::spawn(move || {
+            for line in stderr_reader.lines().map_while(Result::ok) {
+                warn!("[Pre-start stderr] {}", line);
+            }
+        });
+        handles.push(handle);
+    }
+
+    let status = child
+        .wait()
+        .context("Failed to wait for pre-start command")?;
+
+    for handle in handles {
+        let _ = handle.join();
+    }
+
+    if status.success() {
+        info!("Pre-start command executed successfully");
+        Ok(())
+    } else {
+        let exit_code = status.code().unwrap_or(-1);
+        warn!("Pre-start command failed with exit code: {}", exit_code);
+        Err(anyhow::anyhow!(
+            "Pre-start command failed with exit code: {}",
+            exit_code
+        ))
+    }
+}
+
 /// Execute the post start command
 pub fn execute_post_start_command(command: &str) -> Result<()> {
     info!("Executing post-start command: {}", command);

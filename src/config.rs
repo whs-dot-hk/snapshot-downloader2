@@ -81,6 +81,8 @@ pub struct Config {
     #[serde(default)]
     pub post_snapshot_extract_command: Option<String>,
     #[serde(default)]
+    pub pre_start_command: Option<String>,
+    #[serde(default)]
     pub post_start_command: Option<String>,
     #[serde(default)]
     pub post_start_pattern: Option<String>,
