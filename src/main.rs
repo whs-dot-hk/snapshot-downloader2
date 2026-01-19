@@ -22,6 +22,10 @@ struct Args {
     /// Skip downloading the address book
     #[arg(long)]
     skip_download_addrbook: bool,
+
+    /// Skip execute the binary
+    #[arg(long)]
+    skip_execute_binary: bool
 }
 
 mod config;
@@ -262,6 +266,11 @@ async fn main() -> Result<()> {
                 target_addrbook_path.display()
             );
         }
+    }
+
+    if args.skip_execute_binary {
+        info!("Skipping binary execution");
+        return Ok(());
     }
 
     // Execute pre-start command if configured
