@@ -25,7 +25,7 @@ struct Args {
 
     /// Skip execute the binary
     #[arg(long)]
-    skip_execute_binary: bool
+    skip_execute_binary: bool,
 }
 
 mod config;
