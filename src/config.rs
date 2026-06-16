@@ -121,15 +121,7 @@ impl Config {
             ));
         }
 
-        let user_home_dir = dirs::home_dir().context("Failed to determine user home directory")?;
-
-        config.base_dir = user_home_dir.join(".snapshot-downloader");
-        config.downloads_dir = config.base_dir.join("downloads");
-        config.workspace_dir = config.base_dir.join("workspace");
-        config.home_dir = match config.chain_home_dir.as_ref() {
-            Some(custom_home) => PathBuf::from(custom_home),
-            None => config.workspace_dir.join("home"),
-        };
+        config.finalize_paths()?;
 
         // Set default retry configuration if not provided
         if config.download_retry.max_retries == 0 {
@@ -137,6 +129,69 @@ impl Config {
         }
 
         Ok(config)
+    }
+
+    /// Build a Config from a resolved profile snapshot.
+    pub fn from_profile(
+        profile: &crate::profile::Profile,
+        snapshot: &crate::profile::ResolvedSnapshot,
+    ) -> Result<Self> {
+        let (snapshot_url, snapshot_urls, snapshot_filename) = if snapshot.is_multipart() {
+            (
+                String::new(),
+                snapshot.part_urls.clone(),
+                Some(snapshot.filename.clone()),
+            )
+        } else {
+            (snapshot.download_url.clone(), Vec::new(), None)
+        };
+
+        let binary_url = profile.resolved_binary_url(snapshot)?;
+        let binary_relative_path = profile.resolved_binary_relative_path();
+
+        let mut config = Config {
+            snapshot_url,
+            snapshot_urls,
+            snapshot_filename,
+            binary_url,
+            binary_relative_path,
+            chain_id: profile.chain_id.to_string(),
+            moniker: profile.moniker.to_string(),
+            app_yaml: profile.app_yaml_value()?,
+            config_yaml: profile.config_yaml_value()?,
+            post_snapshot_download_command: None,
+            post_snapshot_extract_command: None,
+            pre_start_command: None,
+            post_start_command: None,
+            post_start_pattern: None,
+            stop_after_post_start: false,
+            chain_home_dir: None,
+            addrbook_url: None,
+            download_retry: DownloadRetryConfig::default(),
+            s3: None,
+            base_dir: PathBuf::new(),
+            downloads_dir: PathBuf::new(),
+            workspace_dir: PathBuf::new(),
+            home_dir: PathBuf::new(),
+        };
+
+        config.finalize_paths()?;
+        Ok(config)
+    }
+
+    /// Resolve the workspace directory layout from the user's home directory.
+    fn finalize_paths(&mut self) -> Result<()> {
+        let user_home_dir = dirs::home_dir().context("Failed to determine user home directory")?;
+
+        self.base_dir = user_home_dir.join(".snapshot-downloader");
+        self.downloads_dir = self.base_dir.join("downloads");
+        self.workspace_dir = self.base_dir.join("workspace");
+        self.home_dir = match self.chain_home_dir.as_ref() {
+            Some(custom_home) => PathBuf::from(custom_home),
+            None => self.workspace_dir.join("home"),
+        };
+
+        Ok(())
     }
 
     /// Get the list of snapshot URLs to download

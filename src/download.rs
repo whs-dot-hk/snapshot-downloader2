@@ -124,7 +124,7 @@ async fn download_file_attempt(
         debug!("Total file size: {} bytes", total_size);
     }
 
-    // If file is already complete, return early
+    // If file is already complete, return early.
     if file_size == total_size && total_size > 0 {
         info!("{} is already downloaded completely", file_type);
         return Ok(file_path);
@@ -182,6 +182,7 @@ pub async fn download_multipart_snapshot(
     download_dir: &Path,
     final_filename: &str,
     retry_config: &DownloadRetryConfig,
+    s3_config: Option<&S3Config>,
 ) -> Result<PathBuf> {
     let final_path = download_dir.join(final_filename);
 
@@ -196,7 +197,7 @@ pub async fn download_multipart_snapshot(
     info!("Downloading {} snapshot parts", urls.len());
 
     // Download all parts
-    let part_paths = download_all_parts(urls, download_dir, retry_config).await?;
+    let part_paths = download_all_parts(urls, download_dir, retry_config, s3_config).await?;
 
     // Concatenate parts into final file
     info!("Concatenating parts into final snapshot");
@@ -214,13 +215,18 @@ async fn download_all_parts(
     urls: &[String],
     download_dir: &Path,
     retry_config: &DownloadRetryConfig,
+    s3_config: Option<&S3Config>,
 ) -> Result<Vec<PathBuf>> {
     let mut part_paths = Vec::with_capacity(urls.len());
 
     for (i, url) in urls.iter().enumerate() {
         let part_num = i + 1;
-        let part_path =
-            download_file(url, download_dir, &format!("part {part_num}"), retry_config).await?;
+        let file_type = format!("part {part_num}");
+        let part_path = if is_s3_url(url) {
+            download_s3_file(url, download_dir, &file_type, retry_config, s3_config).await?
+        } else {
+            download_file(url, download_dir, &file_type, retry_config).await?
+        };
         part_paths.push(part_path);
     }
 
@@ -529,7 +535,7 @@ async fn download_s3_file_attempt(
         debug!("Total file size: {} bytes", total_size);
     }
 
-    // If file is already complete, return early
+    // If file is already complete, return early.
     if existing_size == total_size && total_size > 0 {
         info!("{} is already downloaded completely", file_type);
         return Ok(file_path);

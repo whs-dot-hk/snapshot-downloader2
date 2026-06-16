@@ -192,8 +192,7 @@ mod tests {
             t
         });
 
-        let modifier = TomlModifier::new("/tmp");
-        modifier.merge_toml_values(&mut target, source);
+        TomlModifier::merge_toml_values(&mut target, &source);
 
         if let TomlValue::Table(table) = target {
             assert_eq!(table.get("existing").unwrap().as_str().unwrap(), "value");
@@ -266,8 +265,8 @@ p2p:
         )?;
 
         // Apply modifications
-        let modifier = TomlModifier::new(temp_dir.path());
-        modifier.apply_config_changes(Some(app_yaml), Some(config_yaml))?;
+        let modifier = TomlModifier::new(temp_dir.path().join("home"));
+        modifier.apply_config_changes(Some(&app_yaml), Some(&config_yaml))?;
 
         // Verify app.toml changes
         let modified_app_toml = fs::read_to_string(&app_toml_path)?;
@@ -275,11 +274,11 @@ p2p:
 
         if let TomlValue::Table(table) = app_value {
             if let TomlValue::Table(api) = table.get("api").unwrap() {
-                assert_eq!(api.get("enable").unwrap().as_bool().unwrap(), true);
-                assert_eq!(api.get("swagger").unwrap().as_bool().unwrap(), true);
+                assert!(api.get("enable").unwrap().as_bool().unwrap());
+                assert!(api.get("swagger").unwrap().as_bool().unwrap());
             }
             if let TomlValue::Table(grpc) = table.get("grpc").unwrap() {
-                assert_eq!(grpc.get("enable").unwrap().as_bool().unwrap(), true);
+                assert!(grpc.get("enable").unwrap().as_bool().unwrap());
             }
             if let TomlValue::Table(state_sync) = table.get("state-sync").unwrap() {
                 assert_eq!(
