@@ -74,6 +74,7 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
                 "snapshot",
                 &config.download_retry,
                 config.s3.as_ref(),
+                config.snapshot_sha256.as_deref(),
             )
             .await
             .context("Failed to download snapshot from S3")
@@ -83,6 +84,7 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
                 &config.downloads_dir,
                 "snapshot",
                 &config.download_retry,
+                config.snapshot_sha256.as_deref(),
             )
             .await
             .context("Failed to download snapshot")
@@ -95,6 +97,8 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
             &filename,
             &config.download_retry,
             config.s3.as_ref(),
+            &config.snapshot_part_sha256s,
+            config.snapshot_sha256.as_deref(),
         )
         .await
         .context("Failed to download multi-part snapshot")
@@ -156,6 +160,7 @@ async fn main() -> Result<()> {
                 "binary",
                 &config.download_retry,
                 config.s3.as_ref(),
+                config.binary_sha256.as_deref(),
             )
             .await
             .context("Failed to download binary from S3")?
@@ -165,6 +170,7 @@ async fn main() -> Result<()> {
                 &config.downloads_dir,
                 "binary",
                 &config.download_retry,
+                config.binary_sha256.as_deref(),
             )
             .await
             .context("Failed to download binary")?
@@ -263,6 +269,7 @@ async fn main() -> Result<()> {
                     "addrbook",
                     &config.download_retry,
                     config.s3.as_ref(),
+                    None,
                 )
                 .await
                 .context("Failed to download addrbook from S3")?
@@ -272,6 +279,7 @@ async fn main() -> Result<()> {
                     &config.downloads_dir,
                     "addrbook",
                     &config.download_retry,
+                    None,
                 )
                 .await
                 .context("Failed to download addrbook")?

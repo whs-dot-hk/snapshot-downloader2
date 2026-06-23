@@ -4,6 +4,7 @@ use aws_sdk_s3::Client as S3Client;
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::header::{CONTENT_LENGTH, RANGE};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
@@ -12,15 +13,63 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::config::{DownloadRetryConfig, S3Config};
 
+/// Reject non-HTTPS HTTP URLs; `s3://` is allowed.
+pub fn ensure_secure_url(url: &str, context: &str) -> Result<()> {
+    if is_s3_url(url) || url.starts_with("https://") {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "{context}: URL must use HTTPS or S3 scheme: {url}"
+        ))
+    }
+}
+
+/// Verify a file's SHA-256 hex digest. No-op when `expected` is empty.
+pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<()> {
+    let expected = expected.trim();
+    if expected.is_empty() {
+        return Ok(());
+    }
+
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("Failed to open file for hashing: {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).with_context(|| {
+        format!(
+            "Failed to read file for SHA-256 verification: {}",
+            path.display()
+        )
+    })?;
+    let actual = format!("{:x}", hasher.finalize());
+
+    if actual.eq_ignore_ascii_case(expected) {
+        info!("SHA-256 verification passed for {}", path.display());
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "SHA-256 mismatch for {}: expected {expected}, got {actual}",
+            path.display()
+        ))
+    }
+}
+
 pub async fn download_file(
     url: &str,
     download_dir: &Path,
     file_type: &str,
     retry_config: &DownloadRetryConfig,
+    expected_sha256: Option<&str>,
 ) -> Result<PathBuf> {
+    ensure_secure_url(url, file_type)?;
+
     for attempt in 0..=retry_config.max_retries {
         match download_file_attempt(url, download_dir, file_type, attempt).await {
-            Ok(path) => return Ok(path),
+            Ok(path) => {
+                if let Some(hash) = expected_sha256 {
+                    verify_file_sha256(&path, hash)?;
+                }
+                return Ok(path);
+            }
             Err(e) if attempt == retry_config.max_retries => {
                 error!("Final attempt failed for {} download: {}", file_type, e);
                 return Err(e);
@@ -183,10 +232,15 @@ pub async fn download_multipart_snapshot(
     final_filename: &str,
     retry_config: &DownloadRetryConfig,
     s3_config: Option<&S3Config>,
+    part_sha256s: &[Option<String>],
+    final_sha256: Option<&str>,
 ) -> Result<PathBuf> {
     let final_path = download_dir.join(final_filename);
 
     if final_path.exists() {
+        if let Some(hash) = final_sha256 {
+            verify_file_sha256(&final_path, hash)?;
+        }
         info!(
             "Multi-part snapshot already exists: {}",
             final_path.display()
@@ -197,11 +251,16 @@ pub async fn download_multipart_snapshot(
     info!("Downloading {} snapshot parts", urls.len());
 
     // Download all parts
-    let part_paths = download_all_parts(urls, download_dir, retry_config, s3_config).await?;
+    let part_paths =
+        download_all_parts(urls, download_dir, retry_config, s3_config, part_sha256s).await?;
 
     // Concatenate parts into final file
     info!("Concatenating parts into final snapshot");
     concatenate_files(&part_paths, &final_path).await?;
+
+    if let Some(hash) = final_sha256 {
+        verify_file_sha256(&final_path, hash)?;
+    }
 
     // Clean up part files
     cleanup_part_files(&part_paths);
@@ -216,16 +275,28 @@ async fn download_all_parts(
     download_dir: &Path,
     retry_config: &DownloadRetryConfig,
     s3_config: Option<&S3Config>,
+    part_sha256s: &[Option<String>],
 ) -> Result<Vec<PathBuf>> {
     let mut part_paths = Vec::with_capacity(urls.len());
 
     for (i, url) in urls.iter().enumerate() {
         let part_num = i + 1;
         let file_type = format!("part {part_num}");
+        let expected_hash = part_sha256s
+            .get(i)
+            .and_then(|hash| hash.as_deref().filter(|h| !h.trim().is_empty()));
         let part_path = if is_s3_url(url) {
-            download_s3_file(url, download_dir, &file_type, retry_config, s3_config).await?
+            download_s3_file(
+                url,
+                download_dir,
+                &file_type,
+                retry_config,
+                s3_config,
+                expected_hash,
+            )
+            .await?
         } else {
-            download_file(url, download_dir, &file_type, retry_config).await?
+            download_file(url, download_dir, &file_type, retry_config, expected_hash).await?
         };
         part_paths.push(part_path);
     }
@@ -458,10 +529,18 @@ pub async fn download_s3_file(
     file_type: &str,
     retry_config: &DownloadRetryConfig,
     s3_config: Option<&S3Config>,
+    expected_sha256: Option<&str>,
 ) -> Result<PathBuf> {
+    ensure_secure_url(url, file_type)?;
+
     for attempt in 0..=retry_config.max_retries {
         match download_s3_file_attempt(url, download_dir, file_type, attempt, s3_config).await {
-            Ok(path) => return Ok(path),
+            Ok(path) => {
+                if let Some(hash) = expected_sha256 {
+                    verify_file_sha256(&path, hash)?;
+                }
+                return Ok(path);
+            }
             Err(e) if attempt == retry_config.max_retries => {
                 error!("Final attempt failed for {} S3 download: {}", file_type, e);
                 return Err(e);
@@ -585,4 +664,44 @@ async fn download_s3_file_attempt(
     .await?;
 
     Ok(file_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn ensure_secure_url_accepts_https_and_s3() {
+        ensure_secure_url("https://example.com/file", "test").unwrap();
+        ensure_secure_url("s3://bucket/key", "test").unwrap();
+    }
+
+    #[test]
+    fn ensure_secure_url_rejects_http() {
+        let err = ensure_secure_url("http://example.com/file", "test")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("HTTPS"));
+    }
+
+    #[test]
+    fn verify_file_sha256_passes_for_matching_digest() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"hello").unwrap();
+        verify_file_sha256(
+            file.path(),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn verify_file_sha256_fails_on_mismatch() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"hello").unwrap();
+        let err = verify_file_sha256(file.path(), "deadbeef").unwrap_err();
+        assert!(err.to_string().contains("SHA-256 mismatch"));
+    }
 }

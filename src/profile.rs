@@ -11,6 +11,13 @@ use serde_yaml::Value as YamlValue;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::config::S3Config;
+use crate::download::ensure_secure_url;
+
+const INDEX_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+const INDEX_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A resolved, ready-to-download snapshot description.
 #[derive(Debug, Clone)]
@@ -23,6 +30,10 @@ pub struct ResolvedSnapshot {
     pub part_urls: Vec<String>,
     /// Chain binary version from the snapshot index (e.g. "v1.7.7").
     pub version: String,
+    /// Expected SHA-256 hex digest for the full snapshot archive (single-file or concatenated).
+    pub sha256: Option<String>,
+    /// Per-part SHA-256 digests aligned with `part_urls` (empty entries are skipped).
+    pub part_sha256s: Vec<Option<String>>,
 }
 
 impl ResolvedSnapshot {
@@ -59,6 +70,10 @@ pub struct Profile {
     pub binary_url: String,
     /// Relative path to the binary inside the workspace after extraction.
     pub binary_relative_path: String,
+    /// Optional expected SHA-256 hex digest for the binary archive.
+    pub binary_sha256: Option<String>,
+    /// Optional S3 client configuration (region, etc.).
+    pub s3: Option<S3Config>,
 }
 
 const DEFAULT_MONIKER: &str = "snapshot-downloader";
@@ -108,7 +123,11 @@ impl Profile {
             ));
         }
 
+        ensure_secure_url(&self.snapshot_index_url, "snapshot index URL")?;
+
         let client = Client::builder()
+            .timeout(INDEX_HTTP_TIMEOUT)
+            .connect_timeout(INDEX_CONNECT_TIMEOUT)
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -117,7 +136,9 @@ impl Profile {
 
     /// Resolve the binary download URL from the profile template and snapshot version.
     pub fn resolved_binary_url(&self, snapshot: &ResolvedSnapshot) -> Result<String> {
-        expand_url_template(&self.binary_url, &snapshot.version, &self.name)
+        let url = expand_url_template(&self.binary_url, &snapshot.version, &self.name)?;
+        ensure_secure_url(&url, "binary URL")?;
+        Ok(url)
     }
 
     /// Relative path to the extracted binary inside the workspace.
@@ -166,6 +187,10 @@ struct ProfileConfigYaml {
     app_yaml: String,
     #[serde(default)]
     config_yaml: String,
+    #[serde(default)]
+    binary_sha256: Option<String>,
+    #[serde(default)]
+    s3: Option<S3Config>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,6 +249,8 @@ fn load_profiles_data(path: Option<&Path>) -> Result<ProfilesData> {
             pruning_type: p.snapshot.pruning_type,
             binary_url: p.config.binary_url,
             binary_relative_path: p.config.binary_relative_path,
+            binary_sha256: p.config.binary_sha256,
+            s3: p.config.s3,
         });
     }
 
@@ -294,6 +321,8 @@ struct SnapshotEntry {
     version: String,
     #[serde(default)]
     last_modified: String,
+    #[serde(default, alias = "expected_hash")]
+    sha256: String,
     #[serde(default)]
     part_files: Vec<PartFile>,
 }
@@ -303,6 +332,8 @@ struct PartFile {
     filename: String,
     #[serde(default)]
     download_url: String,
+    #[serde(default, alias = "expected_hash")]
+    sha256: String,
 }
 
 async fn resolve_from_index_url(
@@ -360,18 +391,54 @@ async fn resolve_from_index_url(
     let part_urls: Vec<String> = {
         let mut parts = latest.part_files.clone();
         parts.sort_by(|a, b| a.filename.cmp(&b.filename));
-        parts.into_iter().map(|p| p.download_url).collect()
+        parts.iter().map(|p| p.download_url.clone()).collect()
+    };
+
+    let part_sha256s: Vec<Option<String>> = {
+        let mut parts = latest.part_files.clone();
+        parts.sort_by(|a, b| a.filename.cmp(&b.filename));
+        parts
+            .into_iter()
+            .map(|p| {
+                let hash = p.sha256.trim();
+                if hash.is_empty() {
+                    None
+                } else {
+                    Some(hash.to_string())
+                }
+            })
+            .collect()
+    };
+
+    let download_url = if part_urls.is_empty() {
+        latest.download_url.clone()
+    } else {
+        String::new()
+    };
+
+    if !download_url.is_empty() {
+        ensure_secure_url(&download_url, "snapshot download URL")?;
+    }
+    for (i, url) in part_urls.iter().enumerate() {
+        ensure_secure_url(url, &format!("snapshot part {} download URL", i + 1))?;
+    }
+
+    let sha256 = {
+        let hash = latest.sha256.trim();
+        if hash.is_empty() {
+            None
+        } else {
+            Some(hash.to_string())
+        }
     };
 
     Ok(ResolvedSnapshot {
         filename: latest.filename.clone(),
-        download_url: if part_urls.is_empty() {
-            latest.download_url.clone()
-        } else {
-            String::new()
-        },
+        download_url,
         part_urls,
         version: latest.version.clone(),
+        sha256,
+        part_sha256s,
     })
 }
 
@@ -398,7 +465,8 @@ fn target_arch_label() -> Result<&'static str> {
 
 /// Expand `{version}`, `{version_no_v}`, `{os}`, and `{arch}` in a URL template.
 fn expand_url_template(template: &str, version: &str, profile_name: &str) -> Result<String> {
-    if version.trim().is_empty() {
+    let needs_version = template.contains("{version}") || template.contains("{version_no_v}");
+    if needs_version && version.trim().is_empty() {
         return Err(anyhow::anyhow!(
             "Profile '{profile_name}' needs a binary URL template but the snapshot index entry has no version"
         ));
@@ -437,11 +505,27 @@ mod tests {
     }
 
     #[test]
-    fn expand_url_template_requires_version() {
+    fn expand_url_template_requires_version_only_with_placeholder() {
         let err = expand_url_template("https://example.com/{version}", "", "test-profile")
             .unwrap_err()
             .to_string();
         assert!(err.contains("no version"));
+
+        let url = expand_url_template(
+            "https://example.com/static_{os}_{arch}.tar.gz",
+            "",
+            "test-profile",
+        )
+        .unwrap();
+        assert!(url.contains("https://example.com/static_"));
+    }
+
+    #[test]
+    fn ensure_secure_url_rejects_http() {
+        let err = crate::download::ensure_secure_url("http://example.com/file", "test")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("HTTPS"));
     }
 
     #[test]
