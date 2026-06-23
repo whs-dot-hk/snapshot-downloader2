@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::header::{CONTENT_LENGTH, RANGE};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
@@ -13,18 +14,68 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::config::{DownloadRetryConfig, S3Config};
 
-/// Reject non-HTTPS HTTP URLs; `s3://` is allowed.
-pub fn ensure_secure_url(url: &str, context: &str) -> Result<()> {
-    if is_s3_url(url) || url.starts_with("https://") {
+const HASH_BUF_SIZE: usize = 8 * 1024 * 1024;
+
+fn check_sha256_digest(hasher: Sha256, expected: &str, path: &Path) -> Result<()> {
+    let actual = format!("{:x}", hasher.finalize());
+    if actual.eq_ignore_ascii_case(expected) {
+        info!("SHA-256 verification passed for {}", path.display());
         Ok(())
     } else {
         Err(anyhow::anyhow!(
-            "{context}: URL must use HTTPS or S3 scheme: {url}"
+            "SHA-256 mismatch for {}: expected {expected}, got {actual}",
+            path.display()
         ))
     }
 }
 
+fn hash_file_prefix(path: &Path, size: u64, hasher: &mut Sha256) -> Result<()> {
+    if size == 0 {
+        return Ok(());
+    }
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("Failed to open file for hashing: {}", path.display()))?;
+    let mut remaining = size;
+    let mut buf = vec![0u8; HASH_BUF_SIZE];
+    while remaining > 0 {
+        let to_read = usize::try_from(remaining.min(HASH_BUF_SIZE as u64)).unwrap_or(HASH_BUF_SIZE);
+        let n = file
+            .read(&mut buf[..to_read])
+            .with_context(|| format!("Failed to read file for hashing: {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        remaining -= n as u64;
+    }
+    Ok(())
+}
+
+fn copy_with_hash(
+    input: &mut fs::File,
+    output: &mut fs::File,
+    hasher: &mut Option<Sha256>,
+    buf: &mut [u8],
+) -> Result<()> {
+    loop {
+        let n = input.read(buf).context("Failed to read during copy")?;
+        if n == 0 {
+            break;
+        }
+        output
+            .write_all(&buf[..n])
+            .context("Failed to write during copy")?;
+        if let Some(h) = hasher {
+            h.update(&buf[..n]);
+        }
+    }
+    Ok(())
+}
+
 /// Verify a file's SHA-256 hex digest. No-op when `expected` is empty.
+///
+/// Used when the file already exists on disk (cache hit / resume complete).
+/// Fresh downloads hash incrementally during the transfer instead.
 pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<()> {
     let expected = expected.trim();
     if expected.is_empty() {
@@ -36,21 +87,35 @@ pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<()> {
     let mut file = fs::File::open(path)
         .with_context(|| format!("Failed to open file for hashing: {}", path.display()))?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).with_context(|| {
-        format!(
-            "Failed to read file for SHA-256 verification: {}",
-            path.display()
-        )
-    })?;
-    let actual = format!("{:x}", hasher.finalize());
+    let mut buf = vec![0u8; HASH_BUF_SIZE];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .with_context(|| format!("Failed to read file for hashing: {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
 
-    if actual.eq_ignore_ascii_case(expected) {
-        info!("SHA-256 verification passed for {}", path.display());
+    check_sha256_digest(hasher, expected, path)
+}
+
+async fn verify_file_sha256_async(path: &Path, expected: &str) -> Result<()> {
+    let path = path.to_path_buf();
+    let expected = expected.to_string();
+    tokio::task::spawn_blocking(move || verify_file_sha256(&path, &expected))
+        .await
+        .context("SHA-256 verification task panicked")?
+}
+
+/// Reject non-HTTPS HTTP URLs; `s3://` is allowed.
+pub fn ensure_secure_url(url: &str, context: &str) -> Result<()> {
+    if is_s3_url(url) || url.starts_with("https://") {
         Ok(())
     } else {
         Err(anyhow::anyhow!(
-            "SHA-256 mismatch for {}: expected {expected}, got {actual}",
-            path.display()
+            "{context}: URL must use HTTPS or S3 scheme: {url}"
         ))
     }
 }
@@ -65,10 +130,12 @@ pub async fn download_file(
     ensure_secure_url(url, file_type)?;
 
     for attempt in 0..=retry_config.max_retries {
-        match download_file_attempt(url, download_dir, file_type, attempt).await {
-            Ok(path) => {
+        match download_file_attempt(url, download_dir, file_type, attempt, expected_sha256).await {
+            Ok((path, hash_verified)) => {
                 if let Some(hash) = expected_sha256 {
-                    verify_file_sha256(&path, hash)?;
+                    if !hash_verified {
+                        verify_file_sha256_async(&path, hash).await?;
+                    }
                 }
                 return Ok(path);
             }
@@ -98,7 +165,8 @@ async fn download_file_attempt(
     download_dir: &Path,
     file_type: &str,
     attempt: u32,
-) -> Result<PathBuf> {
+    expected_sha256: Option<&str>,
+) -> Result<(PathBuf, bool)> {
     let client = reqwest::Client::builder()
         .build()
         .context("Failed to create HTTP client")?;
@@ -175,10 +243,10 @@ async fn download_file_attempt(
         debug!("Total file size: {} bytes", total_size);
     }
 
-    // If file is already complete, return early.
+    // If file is already complete, return early (hash verified separately).
     if file_size == total_size && total_size > 0 {
         info!("{} is already downloaded completely", file_type);
-        return Ok(file_path);
+        return Ok((file_path, false));
     }
 
     // Prepare request with range header for resuming
@@ -200,7 +268,7 @@ async fn download_file_attempt(
     // Handle potential 416 Range Not Satisfiable error (file already complete)
     if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         info!("{} is already downloaded completely", file_type);
-        return Ok(file_path);
+        return Ok((file_path, false));
     }
 
     // Ensure successful response
@@ -219,12 +287,18 @@ async fn download_file_attempt(
             .map(|result| result.map_err(std::io::Error::other)),
     );
 
-    download_async_read_to_file(
-        reader, &file_path, file_size, total_size, attempt, file_type,
+    let hash_verified = download_async_read_to_file(
+        reader,
+        &file_path,
+        file_size,
+        total_size,
+        attempt,
+        file_type,
+        expected_sha256,
     )
     .await?;
 
-    Ok(file_path)
+    Ok((file_path, hash_verified))
 }
 
 /// Download multiple snapshot parts and concatenate them into a single file
@@ -241,7 +315,7 @@ pub async fn download_multipart_snapshot(
 
     if final_path.exists() {
         if let Some(hash) = final_sha256 {
-            verify_file_sha256(&final_path, hash)?;
+            verify_file_sha256_async(&final_path, hash).await?;
         }
         info!(
             "Multi-part snapshot already exists: {}",
@@ -258,10 +332,12 @@ pub async fn download_multipart_snapshot(
 
     // Concatenate parts into final file
     info!("Concatenating parts into final snapshot");
-    concatenate_files(&part_paths, &final_path).await?;
+    let hash_verified = concatenate_files(&part_paths, &final_path, final_sha256).await?;
 
     if let Some(hash) = final_sha256 {
-        verify_file_sha256(&final_path, hash)?;
+        if !hash_verified {
+            verify_file_sha256_async(&final_path, hash).await?;
+        }
     }
 
     // Clean up part files
@@ -315,34 +391,53 @@ fn cleanup_part_files(part_paths: &[PathBuf]) {
     }
 }
 
-/// Concatenate multiple files into a single output file
-async fn concatenate_files(input_paths: &[PathBuf], output_path: &Path) -> Result<()> {
-    let mut output_file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(output_path)
-        .with_context(|| format!("Failed to create output file: {}", output_path.display()))?;
+/// Concatenate multiple files into a single output file.
+/// Returns `true` when the final SHA-256 was verified during concatenation.
+async fn concatenate_files(
+    input_paths: &[PathBuf],
+    output_path: &Path,
+    expected_sha256: Option<&str>,
+) -> Result<bool> {
+    let input_paths = input_paths.to_vec();
+    let output_path = output_path.to_path_buf();
+    let expected = expected_sha256
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string());
 
-    let pb = create_progress_bar(
-        input_paths.len() as u64,
-        "[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} parts",
-    )?;
+    tokio::task::spawn_blocking(move || {
+        let mut output_file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&output_path)
+            .with_context(|| format!("Failed to create output file: {}", output_path.display()))?;
 
-    for (i, input_path) in input_paths.iter().enumerate() {
-        debug!("Concatenating part {}: {}", i + 1, input_path.display());
+        let mut hasher = expected.as_ref().map(|_| Sha256::new());
+        let mut buf = vec![0u8; HASH_BUF_SIZE];
 
-        let mut input_file = fs::File::open(input_path)
-            .with_context(|| format!("Failed to open part file: {}", input_path.display()))?;
+        for (i, input_path) in input_paths.iter().enumerate() {
+            debug!("Concatenating part {}: {}", i + 1, input_path.display());
 
-        std::io::copy(&mut input_file, &mut output_file)
-            .with_context(|| format!("Failed to copy part {} to output", i + 1))?;
+            let mut input_file = fs::File::open(input_path)
+                .with_context(|| format!("Failed to open part file: {}", input_path.display()))?;
 
-        pb.set_position((i + 1) as u64);
-    }
+            copy_with_hash(&mut input_file, &mut output_file, &mut hasher, &mut buf)
+                .with_context(|| format!("Failed to copy part {} to output", i + 1))?;
+        }
 
-    pb.finish_with_message("Parts concatenated successfully");
-    Ok(())
+        if let (Some(expected), Some(h)) = (expected.as_deref(), hasher) {
+            info!(
+                "Verifying SHA-256 during concatenation for {}",
+                output_path.display()
+            );
+            check_sha256_digest(h, expected, &output_path)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+    .await
+    .context("Concatenation task panicked")?
 }
 
 /// Create a progress bar with the given template
@@ -410,7 +505,8 @@ fn finish_download(pb: ProgressBar, file_type: &str, file_path: &Path) {
     );
 }
 
-/// Unified download logic using AsyncRead trait - works for both HTTP and S3
+/// Unified download logic using AsyncRead trait - works for both HTTP and S3.
+/// Returns `true` when the expected SHA-256 was verified during the transfer.
 async fn download_async_read_to_file<R>(
     mut reader: R,
     file_path: &Path,
@@ -418,10 +514,33 @@ async fn download_async_read_to_file<R>(
     total_size: u64,
     attempt: u32,
     file_type: &str,
-) -> Result<()>
+    expected_sha256: Option<&str>,
+) -> Result<bool>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
+    let expected = expected_sha256.filter(|s| !s.trim().is_empty());
+
+    let mut hasher = if let Some(_) = expected {
+        if existing_size > 0 {
+            let path = file_path.to_path_buf();
+            let size = existing_size;
+            Some(
+                tokio::task::spawn_blocking(move || {
+                    let mut h = Sha256::new();
+                    hash_file_prefix(&path, size, &mut h)?;
+                    Ok::<_, anyhow::Error>(h)
+                })
+                .await
+                .context("SHA-256 resume hashing task panicked")??,
+            )
+        } else {
+            Some(Sha256::new())
+        }
+    } else {
+        None
+    };
+
     // Set up progress bar
     let pb = create_progress_bar_for_attempt(total_size, attempt)?;
     pb.set_position(existing_size);
@@ -448,6 +567,10 @@ where
             break; // EOF
         }
 
+        if let Some(ref mut h) = hasher {
+            h.update(&buffer[..bytes_read]);
+        }
+
         write_chunk_with_progress(
             &mut file,
             &buffer[..bytes_read],
@@ -463,7 +586,17 @@ where
     drop(file);
 
     finish_download(pb, file_type, file_path);
-    Ok(())
+
+    if let (Some(expected), Some(h)) = (expected, hasher) {
+        info!(
+            "Verifying SHA-256 during download for {}",
+            file_path.display()
+        );
+        check_sha256_digest(h, expected, file_path)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Check existing file size and log appropriately
@@ -536,10 +669,21 @@ pub async fn download_s3_file(
     ensure_secure_url(url, file_type)?;
 
     for attempt in 0..=retry_config.max_retries {
-        match download_s3_file_attempt(url, download_dir, file_type, attempt, s3_config).await {
-            Ok(path) => {
+        match download_s3_file_attempt(
+            url,
+            download_dir,
+            file_type,
+            attempt,
+            s3_config,
+            expected_sha256,
+        )
+        .await
+        {
+            Ok((path, hash_verified)) => {
                 if let Some(hash) = expected_sha256 {
-                    verify_file_sha256(&path, hash)?;
+                    if !hash_verified {
+                        verify_file_sha256_async(&path, hash).await?;
+                    }
                 }
                 return Ok(path);
             }
@@ -570,7 +714,8 @@ async fn download_s3_file_attempt(
     file_type: &str,
     attempt: u32,
     s3_config: Option<&S3Config>,
-) -> Result<PathBuf> {
+    expected_sha256: Option<&str>,
+) -> Result<(PathBuf, bool)> {
     // Parse S3 URL
     let (bucket, key) = parse_s3_url(url)?;
 
@@ -619,7 +764,7 @@ async fn download_s3_file_attempt(
     // If file is already complete, return early.
     if existing_size == total_size && total_size > 0 {
         info!("{} is already downloaded completely", file_type);
-        return Ok(file_path);
+        return Ok((file_path, false));
     }
 
     // Download the object
@@ -655,17 +800,18 @@ async fn download_s3_file_attempt(
     // Convert S3 ByteStream to AsyncRead and use unified download logic
     let reader = get_output.body.into_async_read();
 
-    download_async_read_to_file(
+    let hash_verified = download_async_read_to_file(
         reader,
         &file_path,
         existing_size,
         total_size,
         attempt,
         file_type,
+        expected_sha256,
     )
     .await?;
 
-    Ok(file_path)
+    Ok((file_path, hash_verified))
 }
 
 #[cfg(test)]
