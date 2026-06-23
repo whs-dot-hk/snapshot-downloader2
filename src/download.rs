@@ -31,6 +31,8 @@ pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<()> {
         return Ok(());
     }
 
+    info!("Verifying SHA-256 for {}", path.display());
+
     let mut file = fs::File::open(path)
         .with_context(|| format!("Failed to open file for hashing: {}", path.display()))?;
     let mut hasher = Sha256::new();
