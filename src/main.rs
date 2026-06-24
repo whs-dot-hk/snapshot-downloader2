@@ -7,6 +7,25 @@ use tracing::{info, warn};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Use a profile from profiles.yaml instead of config.yaml (see --list-profiles).
+    /// Resolves the latest published snapshot, downloads the matching binary and
+    /// snapshot, initializes, and starts the node (respecting the --skip-* flags).
+    #[arg(long)]
+    profile: Option<String>,
+
+    /// List the available profiles (from profiles.yaml) and exit.
+    #[arg(long)]
+    list_profiles: bool,
+
+    /// Path to the configuration file (ignored when --profile is set).
+    #[arg(long, default_value = "config.yaml")]
+    config: PathBuf,
+
+    /// Path to the profiles file. Defaults to ./profiles.yaml, a profiles.yaml
+    /// next to the executable, or the copy embedded at build time.
+    #[arg(long)]
+    profiles: Option<PathBuf>,
+
     /// Skip downloading the snapshot (use existing snapshot file)
     #[arg(long)]
     skip_download_snapshot: bool,
@@ -31,6 +50,7 @@ struct Args {
 mod config;
 mod download;
 mod extract;
+mod profile;
 mod runner;
 mod toml_modifier;
 mod utils;
@@ -54,6 +74,7 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
                 "snapshot",
                 &config.download_retry,
                 config.s3.as_ref(),
+                config.snapshot_sha256.as_deref(),
             )
             .await
             .context("Failed to download snapshot from S3")
@@ -63,6 +84,7 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
                 &config.downloads_dir,
                 "snapshot",
                 &config.download_retry,
+                config.snapshot_sha256.as_deref(),
             )
             .await
             .context("Failed to download snapshot")
@@ -74,6 +96,9 @@ async fn download_snapshot(config: &Config) -> Result<PathBuf> {
             &config.downloads_dir,
             &filename,
             &config.download_retry,
+            config.s3.as_ref(),
+            &config.snapshot_part_sha256s,
+            config.snapshot_sha256.as_deref(),
         )
         .await
         .context("Failed to download multi-part snapshot")
@@ -88,8 +113,38 @@ async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Load configuration
-    let config = Config::from_file("config.yaml").context("Failed to load configuration")?;
+    // Handle --list-profiles early; it does not need any configuration.
+    if args.list_profiles {
+        println!("Available profiles (use with --profile):\n");
+        for name in profile::profile_names(args.profiles.as_deref())? {
+            println!("  {}", name);
+        }
+        return Ok(());
+    }
+
+    // Load configuration: either from a built-in profile or from a config file.
+    let config = if let Some(profile_name) = args.profile.as_deref() {
+        let prof =
+            profile::builtin(profile_name, args.profiles.as_deref())?.with_context(|| {
+                format!("Unknown profile '{profile_name}'. Run --list-profiles to see options.")
+            })?;
+
+        let snapshot = prof
+            .resolved_snapshot()
+            .await
+            .context("Failed to resolve snapshot from profile indexes")?;
+        info!("Profile '{}' snapshot: {}", prof.name, snapshot.filename);
+        if !snapshot.version.is_empty() {
+            info!("Snapshot binary version: {}", snapshot.version);
+        }
+
+        let config = Config::from_profile(&prof, &snapshot)
+            .context("Failed to build configuration from profile")?;
+        info!("Resolved binary URL: {}", config.binary_url);
+        config
+    } else {
+        Config::from_file(&args.config).context("Failed to load configuration")?
+    };
 
     // Create required directories
     utils::create_directories(&config).context("Failed to create required directories")?;
@@ -105,6 +160,7 @@ async fn main() -> Result<()> {
                 "binary",
                 &config.download_retry,
                 config.s3.as_ref(),
+                config.binary_sha256.as_deref(),
             )
             .await
             .context("Failed to download binary from S3")?
@@ -114,6 +170,7 @@ async fn main() -> Result<()> {
                 &config.downloads_dir,
                 "binary",
                 &config.download_retry,
+                config.binary_sha256.as_deref(),
             )
             .await
             .context("Failed to download binary")?
@@ -131,7 +188,6 @@ async fn main() -> Result<()> {
         info!("Skipping binary download and extraction");
     }
 
-    // Run binary init
     runner::run_binary_init(&config).context("Failed to initialize binary")?;
 
     // Handle snapshot download
@@ -177,7 +233,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Only apply TOML modifications if there are valid (non-empty mapping) configurations
+    // Only apply TOML modifications if there are valid (non-empty mapping) configurations.
     let should_modify_app = is_valid_yaml_config(&config.app_yaml);
     let should_modify_config = is_valid_yaml_config(&config.config_yaml);
 
@@ -213,6 +269,7 @@ async fn main() -> Result<()> {
                     "addrbook",
                     &config.download_retry,
                     config.s3.as_ref(),
+                    None,
                 )
                 .await
                 .context("Failed to download addrbook from S3")?
@@ -222,6 +279,7 @@ async fn main() -> Result<()> {
                     &config.downloads_dir,
                     "addrbook",
                     &config.download_retry,
+                    None,
                 )
                 .await
                 .context("Failed to download addrbook")?

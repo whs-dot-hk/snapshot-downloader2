@@ -1,0 +1,626 @@
+# Profiles for `--profile` (see README).
+# Each profile has two sections:
+#   config:   values used to configure/run the node (chain_id, moniker,
+#             binary_url, binary_relative_path, app_yaml, config_yaml)
+#   snapshot: the path into the snapshots.json index (index_url,
+#             chain_prefix, env_key, db_type, pruning_type)
+# Shared values use YAML anchors: chain-level settings plus per-db-backend
+# app_yaml / config_yaml (db_backend must match snapshot db_type).
+# The `_anchors` section is not read by the program (only `profiles` is).
+
+_anchors:
+  cronos_mainnet:
+    chain_id: &cronos_mainnet_chain_id "cronosmainnet_25-1"
+    snapshot_index_url: &cronos_mainnet_index "https://snapshot.cronos.com/snapshots.json"
+    binary_url: &cronos_mainnet_binary_url "https://github.com/crypto-org-chain/cronos/releases/download/{version}/cronos_{version_no_v}_{os}_{arch}.tar.gz"
+    binary_relative_path: &cronos_mainnet_binary_path "bin/cronosd"
+
+  cronos_testnet:
+    chain_id: &cronos_testnet_chain_id "cronostestnet_338-3"
+    snapshot_index_url: &cronos_testnet_index "https://snapshot.cronos.com/snapshots.json"
+    binary_url: &cronos_testnet_binary_url "https://github.com/crypto-org-chain/cronos/releases/download/{version}/cronos_{version_no_v}-testnet_{os}_{arch}.tar.gz"
+    binary_relative_path: &cronos_testnet_binary_path "bin/cronosd"
+
+  cronos_pos_mainnet:
+    chain_id: &cronos_pos_mainnet_chain_id "crypto-org-chain-mainnet-1"
+    snapshot_index_url: &cronos_pos_mainnet_index "https://snapshot.cronos.com/snapshots.json"
+    binary_url: &cronos_pos_mainnet_binary_url "https://github.com/crypto-org-chain/chain-main/releases/download/{version}/chain-main_{version_no_v}_{os}_{arch}.tar.gz"
+    binary_relative_path: &cronos_pos_mainnet_binary_path "bin/chain-maind"
+
+  cronos_pos_testnet:
+    chain_id: &cronos_pos_testnet_chain_id "testnet-croeseid-4"
+    snapshot_index_url: &cronos_pos_testnet_index "https://snapshot.cronos.com/snapshots.json"
+    binary_url: &cronos_pos_testnet_binary_url "https://github.com/crypto-org-chain/chain-main/releases/download/{version}/chain-main_{version_no_v}-testnet_{os}_{arch}.tar.gz"
+    binary_relative_path: &cronos_pos_testnet_binary_path "bin/chain-maind"
+
+  cronos_mainnet_leveldb:
+    app_yaml: &cronos_mainnet_leveldb_app_yaml |
+      minimum-gas-prices: "46000000000000basecro"
+      app-db-backend: "goleveldb"
+    config_yaml: &cronos_mainnet_leveldb_config_yaml |
+      db_backend: "goleveldb"
+      p2p:
+        seeds: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+        persistent_peers: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+
+  cronos_mainnet_rocksdb:
+    app_yaml: &cronos_mainnet_rocksdb_app_yaml |
+      minimum-gas-prices: "46000000000000basecro"
+      app-db-backend: "rocksdb"
+    config_yaml: &cronos_mainnet_rocksdb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+        persistent_peers: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+
+  cronos_mainnet_versiondb:
+    app_yaml: &cronos_mainnet_versiondb_app_yaml |
+      minimum-gas-prices: "46000000000000basecro"
+      app-db-backend: "rocksdb"
+      versiondb:
+        enable: true
+    config_yaml: &cronos_mainnet_versiondb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+        persistent_peers: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+
+  cronos_mainnet_versiondb_memiavl:
+    app_yaml: &cronos_mainnet_versiondb_memiavl_app_yaml |
+      minimum-gas-prices: "46000000000000basecro"
+      app-db-backend: "rocksdb"
+      memiavl:
+        enable: true
+      versiondb:
+        enable: true
+    config_yaml: &cronos_mainnet_versiondb_memiavl_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+        persistent_peers: "0d5cf1394a1cfde28dc8f023567222abc0f47534@seed-0.cronos.com:26656,3032073adc06d710dd512240281637c1bd0c8a7b@seed-1.cronos.com:26656,04f43116b4c6c70054d9c2b7485383df5b1ed1da@seed-2.cronos.com:26656"
+
+  cronos_pos_mainnet_leveldb:
+    app_yaml: &cronos_pos_mainnet_leveldb_app_yaml |
+      minimum-gas-prices: "0.025basecro"
+      app-db-backend: "goleveldb"
+    config_yaml: &cronos_pos_mainnet_leveldb_config_yaml |
+      db_backend: "goleveldb"
+      p2p:
+        seeds: "87c3adb7d8f649c51eebe0d3335d8f9e28c362f2@seed-0.cronos-pos.org:26656,e1d7ff02b78044795371beb1cd5fb803f9389256@seed-1.cronos-pos.org:26656,2c55809558a4e491e9995962e10c026eb9014655@seed-2.cronos-pos.org:26656"
+        persistent_peers: "87c3adb7d8f649c51eebe0d3335d8f9e28c362f2@seed-0.cronos-pos.org:26656,e1d7ff02b78044795371beb1cd5fb803f9389256@seed-1.cronos-pos.org:26656,2c55809558a4e491e9995962e10c026eb9014655@seed-2.cronos-pos.org:26656"
+
+  cronos_pos_mainnet_rocksdb:
+    app_yaml: &cronos_pos_mainnet_rocksdb_app_yaml |
+      minimum-gas-prices: "0.025basecro"
+      app-db-backend: "rocksdb"
+    config_yaml: &cronos_pos_mainnet_rocksdb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "87c3adb7d8f649c51eebe0d3335d8f9e28c362f2@seed-0.cronos-pos.org:26656,e1d7ff02b78044795371beb1cd5fb803f9389256@seed-1.cronos-pos.org:26656,2c55809558a4e491e9995962e10c026eb9014655@seed-2.cronos-pos.org:26656"
+        persistent_peers: "87c3adb7d8f649c51eebe0d3335d8f9e28c362f2@seed-0.cronos-pos.org:26656,e1d7ff02b78044795371beb1cd5fb803f9389256@seed-1.cronos-pos.org:26656,2c55809558a4e491e9995962e10c026eb9014655@seed-2.cronos-pos.org:26656"
+
+  cronos_pos_mainnet_versiondb:
+    app_yaml: &cronos_pos_mainnet_versiondb_app_yaml |
+      minimum-gas-prices: "0.025basecro"
+      app-db-backend: "rocksdb"
+      versiondb:
+        enable: true
+    config_yaml: &cronos_pos_mainnet_versiondb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "87c3adb7d8f649c51eebe0d3335d8f9e28c362f2@seed-0.cronos-pos.org:26656,e1d7ff02b78044795371beb1cd5fb803f9389256@seed-1.cronos-pos.org:26656,2c55809558a4e491e9995962e10c026eb9014655@seed-2.cronos-pos.org:26656"
+        persistent_peers: "87c3adb7d8f649c51eebe0d3335d8f9e28c362f2@seed-0.cronos-pos.org:26656,e1d7ff02b78044795371beb1cd5fb803f9389256@seed-1.cronos-pos.org:26656,2c55809558a4e491e9995962e10c026eb9014655@seed-2.cronos-pos.org:26656"
+
+  cronos_pos_testnet_leveldb:
+    app_yaml: &cronos_pos_testnet_leveldb_app_yaml |
+      minimum-gas-prices: "0.025basetcro"
+      app-db-backend: "goleveldb"
+    config_yaml: &cronos_pos_testnet_leveldb_config_yaml |
+      db_backend: "goleveldb"
+      p2p:
+        seeds: "71d2a4727bf574d5d368c343e37edff00cd556b1@seed-0.testnet-croeseid-4.cronos-pos.org:26656,8af7c92277f3edce58aa828cf1026cfa74fd6569@seed-1.testnet-croeseid-4.cronos-pos.org:26656"
+        persistent_peers: "71d2a4727bf574d5d368c343e37edff00cd556b1@seed-0.testnet-croeseid-4.cronos-pos.org:26656,8af7c92277f3edce58aa828cf1026cfa74fd6569@seed-1.testnet-croeseid-4.cronos-pos.org:26656"
+
+  cronos_pos_testnet_rocksdb:
+    app_yaml: &cronos_pos_testnet_rocksdb_app_yaml |
+      minimum-gas-prices: "0.025basetcro"
+      app-db-backend: "rocksdb"
+    config_yaml: &cronos_pos_testnet_rocksdb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "71d2a4727bf574d5d368c343e37edff00cd556b1@seed-0.testnet-croeseid-4.cronos-pos.org:26656,8af7c92277f3edce58aa828cf1026cfa74fd6569@seed-1.testnet-croeseid-4.cronos-pos.org:26656"
+        persistent_peers: "71d2a4727bf574d5d368c343e37edff00cd556b1@seed-0.testnet-croeseid-4.cronos-pos.org:26656,8af7c92277f3edce58aa828cf1026cfa74fd6569@seed-1.testnet-croeseid-4.cronos-pos.org:26656"
+
+  cronos_pos_testnet_versiondb:
+    app_yaml: &cronos_pos_testnet_versiondb_app_yaml |
+      minimum-gas-prices: "0.025basetcro"
+      app-db-backend: "rocksdb"
+      versiondb:
+        enable: true
+    config_yaml: &cronos_pos_testnet_versiondb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "71d2a4727bf574d5d368c343e37edff00cd556b1@seed-0.testnet-croeseid-4.cronos-pos.org:26656,8af7c92277f3edce58aa828cf1026cfa74fd6569@seed-1.testnet-croeseid-4.cronos-pos.org:26656"
+        persistent_peers: "71d2a4727bf574d5d368c343e37edff00cd556b1@seed-0.testnet-croeseid-4.cronos-pos.org:26656,8af7c92277f3edce58aa828cf1026cfa74fd6569@seed-1.testnet-croeseid-4.cronos-pos.org:26656"
+
+  cronos_testnet_leveldb:
+    app_yaml: &cronos_testnet_leveldb_app_yaml |
+      minimum-gas-prices: "5000000000000basetcro"
+      app-db-backend: "goleveldb"
+    config_yaml: &cronos_testnet_leveldb_config_yaml |
+      db_backend: "goleveldb"
+      p2p:
+        seeds: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+        persistent_peers: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+
+  cronos_testnet_rocksdb:
+    app_yaml: &cronos_testnet_rocksdb_app_yaml |
+      minimum-gas-prices: "5000000000000basetcro"
+      app-db-backend: "rocksdb"
+    config_yaml: &cronos_testnet_rocksdb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+        persistent_peers: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+
+  cronos_testnet_versiondb:
+    app_yaml: &cronos_testnet_versiondb_app_yaml |
+      minimum-gas-prices: "5000000000000basetcro"
+      app-db-backend: "rocksdb"
+      versiondb:
+        enable: true
+    config_yaml: &cronos_testnet_versiondb_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+        persistent_peers: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+
+  cronos_testnet_versiondb_memiavl:
+    app_yaml: &cronos_testnet_versiondb_memiavl_app_yaml |
+      minimum-gas-prices: "5000000000000basetcro"
+      app-db-backend: "rocksdb"
+      memiavl:
+        enable: true
+      versiondb:
+        enable: true
+    config_yaml: &cronos_testnet_versiondb_memiavl_config_yaml |
+      db_backend: "rocksdb"
+      p2p:
+        seeds: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+        persistent_peers: "8fcba3485c67a2a00a383b6f45660a4ac529c6ca@52.77.30.18:26656,e65199bc579ffd89d7c021c5611f9f1c97f7ff13@54.251.209.254:26656"
+
+profiles:
+  - name: cronos-mainnet-leveldb-archive
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_leveldb_app_yaml
+      config_yaml: *cronos_mainnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: leveldb
+      pruning_type: archive
+
+  - name: cronos-mainnet-leveldb-default
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_leveldb_app_yaml
+      config_yaml: *cronos_mainnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: leveldb
+      pruning_type: default
+
+  - name: cronos-mainnet-leveldb-pruned
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_leveldb_app_yaml
+      config_yaml: *cronos_mainnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: leveldb
+      pruning_type: pruned
+
+  - name: cronos-mainnet-rocksdb-archive
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_rocksdb_app_yaml
+      config_yaml: *cronos_mainnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: rocksdb
+      pruning_type: archive
+
+  - name: cronos-mainnet-rocksdb-default
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_rocksdb_app_yaml
+      config_yaml: *cronos_mainnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: rocksdb
+      pruning_type: default
+
+  - name: cronos-mainnet-rocksdb-pruned
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_rocksdb_app_yaml
+      config_yaml: *cronos_mainnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: rocksdb
+      pruning_type: pruned
+
+  - name: cronos-mainnet-versiondb-archive
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_versiondb_app_yaml
+      config_yaml: *cronos_mainnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: versiondb
+      pruning_type: archive
+
+  - name: cronos-mainnet-versiondb-pruned
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_versiondb_app_yaml
+      config_yaml: *cronos_mainnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: versiondb
+      pruning_type: pruned
+
+  - name: cronos-mainnet-versiondb-memiavl-none
+    config:
+      chain_id: *cronos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_mainnet_binary_url
+      binary_relative_path: *cronos_mainnet_binary_path
+      app_yaml: *cronos_mainnet_versiondb_memiavl_app_yaml
+      config_yaml: *cronos_mainnet_versiondb_memiavl_config_yaml
+    snapshot:
+      index_url: *cronos_mainnet_index
+      chain_prefix: cronos
+      env_key: mainnet-snapshot
+      db_type: versiondb-memiavl
+      pruning_type: none
+
+  - name: cronos-testnet-leveldb-archive
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_leveldb_app_yaml
+      config_yaml: *cronos_testnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: leveldb
+      pruning_type: archive
+
+  - name: cronos-testnet-leveldb-default
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_leveldb_app_yaml
+      config_yaml: *cronos_testnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: leveldb
+      pruning_type: default
+
+  - name: cronos-testnet-leveldb-pruned
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_leveldb_app_yaml
+      config_yaml: *cronos_testnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: leveldb
+      pruning_type: pruned
+
+  - name: cronos-testnet-rocksdb-archive
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_rocksdb_app_yaml
+      config_yaml: *cronos_testnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: rocksdb
+      pruning_type: archive
+
+  - name: cronos-testnet-rocksdb-default
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_rocksdb_app_yaml
+      config_yaml: *cronos_testnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: rocksdb
+      pruning_type: default
+
+  - name: cronos-testnet-rocksdb-pruned
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_rocksdb_app_yaml
+      config_yaml: *cronos_testnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: rocksdb
+      pruning_type: pruned
+
+  - name: cronos-testnet-versiondb-archive
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_versiondb_app_yaml
+      config_yaml: *cronos_testnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: versiondb
+      pruning_type: archive
+
+  - name: cronos-testnet-versiondb-default
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_versiondb_app_yaml
+      config_yaml: *cronos_testnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: versiondb
+      pruning_type: default
+
+  - name: cronos-testnet-versiondb-pruned
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_versiondb_app_yaml
+      config_yaml: *cronos_testnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: versiondb
+      pruning_type: pruned
+
+  - name: cronos-testnet-versiondb-memiavl-none
+    config:
+      chain_id: *cronos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_testnet_binary_url
+      binary_relative_path: *cronos_testnet_binary_path
+      app_yaml: *cronos_testnet_versiondb_memiavl_app_yaml
+      config_yaml: *cronos_testnet_versiondb_memiavl_config_yaml
+    snapshot:
+      index_url: *cronos_testnet_index
+      chain_prefix: cronos
+      env_key: testnet-snapshot
+      db_type: versiondb-memiavl
+      pruning_type: none
+
+  - name: cronos-pos-mainnet-leveldb-archive
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_leveldb_app_yaml
+      config_yaml: *cronos_pos_mainnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: leveldb
+      pruning_type: archive
+
+  - name: cronos-pos-mainnet-leveldb-default
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_leveldb_app_yaml
+      config_yaml: *cronos_pos_mainnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: leveldb
+      pruning_type: default
+
+  - name: cronos-pos-mainnet-leveldb-pruned
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_leveldb_app_yaml
+      config_yaml: *cronos_pos_mainnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: leveldb
+      pruning_type: pruned
+
+  - name: cronos-pos-mainnet-rocksdb-archive
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_rocksdb_app_yaml
+      config_yaml: *cronos_pos_mainnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: rocksdb
+      pruning_type: archive
+
+  - name: cronos-pos-mainnet-rocksdb-default
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_rocksdb_app_yaml
+      config_yaml: *cronos_pos_mainnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: rocksdb
+      pruning_type: default
+
+  - name: cronos-pos-mainnet-rocksdb-pruned
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_rocksdb_app_yaml
+      config_yaml: *cronos_pos_mainnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: rocksdb
+      pruning_type: pruned
+
+  - name: cronos-pos-mainnet-versiondb-pruned
+    config:
+      chain_id: *cronos_pos_mainnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_mainnet_binary_url
+      binary_relative_path: *cronos_pos_mainnet_binary_path
+      app_yaml: *cronos_pos_mainnet_versiondb_app_yaml
+      config_yaml: *cronos_pos_mainnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_mainnet_index
+      chain_prefix: cronos-pos
+      env_key: mainnet-snapshot
+      db_type: versiondb
+      pruning_type: pruned
+
+  - name: cronos-pos-testnet-leveldb-pruned
+    config:
+      chain_id: *cronos_pos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_testnet_binary_url
+      binary_relative_path: *cronos_pos_testnet_binary_path
+      app_yaml: *cronos_pos_testnet_leveldb_app_yaml
+      config_yaml: *cronos_pos_testnet_leveldb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_testnet_index
+      chain_prefix: cronos-pos
+      env_key: testnet-snapshot
+      db_type: leveldb
+      pruning_type: pruned
+
+  - name: cronos-pos-testnet-rocksdb-pruned
+    config:
+      chain_id: *cronos_pos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_testnet_binary_url
+      binary_relative_path: *cronos_pos_testnet_binary_path
+      app_yaml: *cronos_pos_testnet_rocksdb_app_yaml
+      config_yaml: *cronos_pos_testnet_rocksdb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_testnet_index
+      chain_prefix: cronos-pos
+      env_key: testnet-snapshot
+      db_type: rocksdb
+      pruning_type: pruned
+
+  - name: cronos-pos-testnet-versiondb-pruned
+    config:
+      chain_id: *cronos_pos_testnet_chain_id
+      moniker: snapshot-downloader
+      binary_url: *cronos_pos_testnet_binary_url
+      binary_relative_path: *cronos_pos_testnet_binary_path
+      app_yaml: *cronos_pos_testnet_versiondb_app_yaml
+      config_yaml: *cronos_pos_testnet_versiondb_config_yaml
+    snapshot:
+      index_url: *cronos_pos_testnet_index
+      chain_prefix: cronos-pos
+      env_key: testnet-snapshot
+      db_type: versiondb
+      pruning_type: pruned
