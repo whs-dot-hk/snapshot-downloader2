@@ -9,7 +9,7 @@ A beautiful Rust application for downloading and extracting Cosmos node snapshot
 * Automatic extraction of various archive formats
 * Proper error handling and logging
 * Configuration via YAML file
-* Built-in profiles for Cronos / Cronos POS (resolve snapshot + binary from a live index)
+* Built-in profiles (resolve snapshot + binary from a live index)
 * Uses absolute paths for all operations
 * Stores data in `~/.snapshot-downloader`
 
@@ -21,10 +21,10 @@ Built-in profiles fetch the **latest published snapshot** for a chain from a
 `version`, download both, apply curated node config, and start the node.
 
 ```bash
-# Latest Cronos (EVM) mainnet snapshot, leveldb / pruned
+# Mainnet snapshot, leveldb / pruned
 snapshot-downloader --profile cronos-mainnet-leveldb-pruned
 
-# Latest Cronos POS mainnet snapshot, versiondb / pruned
+# Another network / db / pruning combination
 snapshot-downloader --profile cronos-pos-mainnet-versiondb-pruned
 
 # Testnet variant
@@ -48,7 +48,7 @@ Profile names follow `<base>-<db>-<pruning>`:
 > tool works even when run outside the source tree.
 >
 > **Binary assets are platform-specific.** `binary_url` templates expand
-> `{os}`/`{arch}` (e.g. `Linux`/`arm64`); the upstream Cronos releases are
+> `{os}`/`{arch}` (e.g. `Linux`/`arm64`); profile binary URLs are typically
 > published for Linux, so profile runs are intended for Linux hosts.
 
 Current profiles available via `--list-profiles`:
@@ -103,9 +103,9 @@ The snapshot is written to `~/.snapshot-downloader/workspace/home/`.
 
 ## Snapshot index format (`snapshots.json`)
 
-Profiles point at a URL that returns a JSON snapshot index. The public Cronos
-index is at `https://snapshot.cronos.com/snapshots.json`; any provider can
-publish a compatible file.
+Profiles point at a URL that returns a JSON snapshot index. Any provider can
+publish a compatible file at an HTTPS endpoint (for example
+`https://example.com/snapshots.json`).
 
 ### Top-level structure
 
@@ -127,7 +127,7 @@ Snapshots are organised as a four-level path under `chains`:
 
 ```
 chains
-└── <chain_prefix>           e.g. "cronos", "cronos-pos"
+└── <chain_prefix>           e.g. "my-chain"
     └── <env_key>            e.g. "mainnet-snapshot", "testnet-snapshot"
         └── <db_type>        e.g. "leveldb", "rocksdb", "versiondb"
             └── <pruning_type>   e.g. "pruned", "default", "archive", "none"
@@ -142,11 +142,11 @@ array (sorted by `last_modified` descending, with `filename` as a tiebreak).
 
 ```json
 {
-  "filename": "cronosmainnet_25-1_rocksdb-pruned-20260622.tar.lz4",
+  "filename": "my-chain-pruned-20260622.tar.lz4",
   "size_bytes": 23396341266,
   "last_modified": "2026-06-22T09:42:15Z",
-  "download_url": "https://snapshot.cronos.com/cronos/mainnet-snapshot/rocksdb/pruned/cronosmainnet_25-1_rocksdb-pruned-20260622.tar.lz4",
-  "version": "v1.7.7",
+  "download_url": "https://snapshots.example.com/my-chain/mainnet-snapshot/rocksdb/pruned/my-chain-pruned-20260622.tar.lz4",
+  "version": "v1.0.0",
   "sha256": "0d184b84cddee213b0d473b54486791c552de2c6a54a3cd5e72382fc3036610d",
   "verified": true
 }
@@ -173,24 +173,24 @@ metadata; parts hold the actual download URLs:
 
 ```json
 {
-  "filename": "cronosmainnet_25-1_leveldb-archive-20260612.tar.lz4",
+  "filename": "my-chain-archive-20260612.tar.lz4",
   "size_bytes": 7915190787761,
   "last_modified": "2026-06-13T12:15:22Z",
-  "download_url": "https://snapshot.cronos.com/.../cronosmainnet_25-1_leveldb-archive-20260612.tar.lz4",
-  "version": "v1.7.5",
+  "download_url": "https://snapshots.example.com/my-chain/mainnet-snapshot/leveldb/archive/my-chain-archive-20260612.tar.lz4",
+  "version": "v1.0.0",
   "sha256": "",
   "verified": false,
   "part_files": [
     {
-      "filename": "cronosmainnet_25-1_leveldb-archive-20260612.tar.lz4.part001",
+      "filename": "my-chain-archive-20260612.tar.lz4.part001",
       "size_bytes": 4294967296000,
-      "download_url": "https://snapshot.cronos.com/.../part001",
+      "download_url": "https://snapshots.example.com/my-chain/mainnet-snapshot/leveldb/archive/my-chain-archive-20260612.tar.lz4.part001",
       "sha256": "0b519b5659a431506deded69e1f172b3022b006b714488adf9e9c4527244759c"
     },
     {
-      "filename": "cronosmainnet_25-1_leveldb-archive-20260612.tar.lz4.part002",
+      "filename": "my-chain-archive-20260612.tar.lz4.part002",
       "size_bytes": 3620223491761,
-      "download_url": "https://snapshot.cronos.com/.../part002",
+      "download_url": "https://snapshots.example.com/my-chain/mainnet-snapshot/leveldb/archive/my-chain-archive-20260612.tar.lz4.part002",
       "sha256": "77abe9dbb1c9230b8093a42171425e2903cdb06ea6c0435e31f8babd400ab6c7"
     }
   ]
@@ -201,7 +201,7 @@ metadata; parts hold the actual download URLs:
 |----------------------|----------|--------------|-------------|
 | `filename` | yes | yes | Part filename (parts are concatenated in filename order) |
 | `download_url` | yes | yes | Direct download URL for this part |
-| `sha256` | no | no | Per-part checksum (informational in current tool) |
+| `sha256` | no | yes (verified) | Per-part checksum; verified during download when present |
 | `size_bytes` | no | no | Part size in bytes (informational) |
 
 ### Minimal compatible example

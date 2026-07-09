@@ -17,7 +17,11 @@ use crate::config::{DownloadRetryConfig, S3Config};
 const HASH_BUF_SIZE: usize = 8 * 1024 * 1024;
 
 fn check_sha256_digest(hasher: Sha256, expected: &str, path: &Path) -> Result<()> {
-    let actual = format!("{:x}", hasher.finalize());
+    let digest = hasher.finalize();
+    let actual = digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
     if actual.eq_ignore_ascii_case(expected) {
         info!("SHA-256 verification passed for {}", path.display());
         Ok(())
@@ -521,7 +525,7 @@ where
 {
     let expected = expected_sha256.filter(|s| !s.trim().is_empty());
 
-    let mut hasher = if let Some(_) = expected {
+    let mut hasher = if expected.is_some() {
         if existing_size > 0 {
             let path = file_path.to_path_buf();
             let size = existing_size;
@@ -851,5 +855,16 @@ mod tests {
         file.write_all(b"hello").unwrap();
         let err = verify_file_sha256(file.path(), "deadbeef").unwrap_err();
         assert!(err.to_string().contains("SHA-256 mismatch"));
+    }
+
+    #[test]
+    fn verify_file_sha256_accepts_uppercase_expected_digest() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"hello").unwrap();
+        verify_file_sha256(
+            file.path(),
+            "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
+        )
+        .unwrap();
     }
 }
